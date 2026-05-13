@@ -318,8 +318,15 @@
 
 <script>
 const SUPABASE_URL = 'https://sdzrvdcgspukdnlbutzf.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_Otb3fmXYfvXLWFuMoFAYJA_hjYc2YNM';
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNkenJ2ZGNnc3B1a2RubGJ1dHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2NTExOTcsImV4cCI6MjA5NDIyNzE5N30.Zsi_kLEefRrMIfLLaIiNVxngYNlH1VZazeS1VyUwUQA';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    flowType: 'pkce'
+  }
+});
 
 let currentUser = null, processos = [], activeProc = null;
 
@@ -356,27 +363,42 @@ sb.auth.onAuthStateChange(async(_,session)=>{
 });
 
 async function load() {
-  const {data,error}=await sb.from('processos').select('*,exigencias(*),checklist_docs(*),exigencia_itens(*)').eq('user_id',currentUser.id).order('created_at',{ascending:false});
-  if(!error&&data) processos=data;
+  try {
+    const {data,error}=await sb.from('processos').select('*,exigencias(*),checklist_docs(*),exigencia_itens(*)').eq('user_id',currentUser.id).order('created_at',{ascending:false});
+    if(error){console.error('Erro load:',error);return;}
+    if(data) processos=data;
+  } catch(e){console.error('Erro load catch:',e);}
 }
 
 async function salvarProcesso() {
-  const tipo=document.getElementById('np-tipo').value, cliente=document.getElementById('np-cliente').value;
-  if(!tipo||!cliente){toast('Preencha tipo e cliente.');return;}
-  const {error}=await sb.from('processos').insert({
-    user_id:currentUser.id, tipo, cliente,
-    cartorio:document.getElementById('np-cartorio').value,
-    imovel:document.getElementById('np-imovel').value,
-    protocolo:document.getElementById('np-protocolo').value,
-    interno:document.getElementById('np-interno').value,
-    apresentacao:document.getElementById('np-apresentacao').value||null,
-    honorarios:parseFloat(document.getElementById('np-honorarios').value)||0,
-    recebido:parseFloat(document.getElementById('np-recebido').value)||0,
-    email_cliente:document.getElementById('np-email-cliente').value,
-    etapa:'docs'
-  });
-  if(error){toast('Erro: '+error.message);return;}
-  toast('Processo salvo!'); await load(); navTo('processos');
+  try {
+    if(!currentUser){toast('Sessão expirada. Faça login novamente.'); return;}
+    const tipo=document.getElementById('np-tipo').value;
+    const cliente=document.getElementById('np-cliente').value;
+    if(!tipo||!cliente){toast('Preencha tipo e cliente.');return;}
+    const honStr = (document.getElementById('np-honorarios').value||'0').replace(',','.').replace(/[^0-9.]/g,'');
+    const recStr = (document.getElementById('np-recebido').value||'0').replace(',','.').replace(/[^0-9.]/g,'');
+    const obj = {
+      user_id:currentUser.id, tipo, cliente,
+      cartorio:document.getElementById('np-cartorio').value||null,
+      imovel:document.getElementById('np-imovel').value||null,
+      protocolo:document.getElementById('np-protocolo').value||null,
+      interno:document.getElementById('np-interno').value||null,
+      apresentacao:document.getElementById('np-apresentacao').value||null,
+      honorarios:parseFloat(honStr)||0,
+      recebido:parseFloat(recStr)||0,
+      email_cliente:document.getElementById('np-email-cliente').value||null,
+      etapa:'docs'
+    };
+    console.log('Salvando processo:', obj);
+    const {data, error}=await sb.from('processos').insert(obj).select();
+    console.log('Resultado:', data, error);
+    if(error){toast('Erro: '+error.message); console.error('Erro insert:', error); return;}
+    toast('Processo salvo!'); await load(); navTo('processos');
+  } catch(e) {
+    toast('Erro: '+e.message);
+    console.error('Erro catch:', e);
+  }
 }
 
 async function salvarExigencia() {
