@@ -819,7 +819,7 @@ function renderExigencia() {
 
   if(!abertas.length){
     html+=`<div class="empty" style="padding:1rem 0;"><i class="ti ti-circle-check"></i>Nenhuma exigência aberta</div>`;
-    el.innerHTML=html; return;
+    // segue para mostrar resolvidas
   }
 
   abertas.forEach((exig,idx)=>{
