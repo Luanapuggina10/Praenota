@@ -587,15 +587,19 @@ async function confirmarReingresso() {
   const data = document.getElementById('reingresso-data').value;
   if(!data){toast('Informe a data do reingresso.');return;}
   const novoVenc = addDiasUteis(data, 10);
-  await sb.from('exigencias').update({
+  const {error} = await sb.from('exigencias').update({
     resolvida: true,
     data_reingresso_realizado: data,
     novo_prazo_analise: novoVenc.toISOString().split('T')[0]
   }).eq('id', _reingressoExigId);
+  if(error){toast('Erro ao registrar reingresso: '+error.message); console.error(error); return;}
   await sb.from('processos').update({etapa:'reingresso'}).eq('id', activeProc.id);
   toast('Reingresso registrado! Novo prazo: '+fmtDate(novoVenc));
   fecharModal('modal-reingresso');
-  await load(); activeProc=processos.find(p=>p.id===activeProc.id);
+  // force fresh reload
+  processos = [];
+  await load();
+  activeProc = processos.find(p=>p.id===activeProc.id);
   renderDetalhe();
 }
 
@@ -878,10 +882,25 @@ function renderExigencia() {
   // Exigências resolvidas (fechadas)
   const resolvidas=exigs.filter(e=>e.resolvida);
   if(resolvidas.length){
-    html+=`<details style="margin-top:8px;"><summary style="font-size:12px;color:var(--text2);cursor:pointer;">${resolvidas.length} exigência${resolvidas.length>1?'s':''} resolvida${resolvidas.length>1?'s':''}</summary>
-    ${resolvidas.map(e=>`<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;">
-      <span style="font-weight:500;">${e.nota_ref||'Exigência'}</span> · Reingresso em ${e.data_reingresso_realizado?fmtDate(e.data_reingresso_realizado):'—'}
-    </div>`).join('')}</details>`;
+    const openAttr = abertas.length===0 ? 'open' : '';
+    html+=`<details ${openAttr} style="margin-top:12px;border:1px solid var(--border);border-radius:var(--r);padding:10px 14px;">
+      <summary style="font-size:12px;font-weight:500;color:var(--text2);cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;">
+        <i class="ti ti-circle-check" style="color:var(--success);font-size:14px;"></i>
+        ${resolvidas.length} exigência${resolvidas.length>1?'s':''} resolvida${resolvidas.length>1?'s':''}
+      </summary>
+      <div style="margin-top:10px;">
+      ${resolvidas.map(e=>`<div style="padding:10px 0;border-bottom:1px solid var(--border);font-size:13px;display:flex;align-items:center;gap:10px;">
+        <i class="ti ti-check" style="color:var(--success);font-size:14px;flex-shrink:0;"></i>
+        <div>
+          <div style="font-weight:500;">${e.nota_ref||'Exigência'}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px;">
+            Reingresso em ${e.data_reingresso_realizado?fmtDate(e.data_reingresso_realizado):'—'} 
+            ${e.novo_prazo_analise?' · Novo prazo análise: '+fmtDate(e.novo_prazo_analise):''}
+          </div>
+        </div>
+      </div>`).join('')}
+      </div>
+    </details>`;
   }
 
   el.innerHTML=html;
