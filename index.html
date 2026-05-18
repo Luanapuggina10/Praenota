@@ -244,6 +244,7 @@
       <div class="gap-8" style="margin-bottom:1.25rem;">
         <button class="btn" onclick="navTo('processos')"><i class="ti ti-arrow-left"></i> Voltar</button>
         <span id="detalhe-titulo" style="font-size:15px;font-weight:500;color:var(--brand);"></span>
+        <button class="btn" id="btn-deletar" style="margin-left:auto;color:var(--danger);border-color:#f5c6c2;" onclick="deletarProcesso(activeProc?.id)"><i class="ti ti-trash"></i> Excluir processo</button>
       </div>
       <div id="detalhe-content"></div>
     </div>
@@ -384,11 +385,14 @@ async function load() {
 }
 
 async function salvarProcesso() {
+  const btn = document.querySelector('#page-novo-processo .btn-primary');
+  if(btn && btn.disabled) return;
+  if(btn){ btn.disabled=true; btn.textContent='Salvando...'; }
   try {
-    if(!currentUser){toast('Sessão expirada. Faça login novamente.'); return;}
+    if(!currentUser){toast('Sessão expirada. Faça login novamente.'); if(btn){btn.disabled=false;btn.textContent='Salvar processo';} return;}
     const tipo=document.getElementById('np-tipo').value;
     const cliente=document.getElementById('np-cliente').value;
-    if(!tipo||!cliente){toast('Preencha tipo e cliente.');return;}
+    if(!tipo||!cliente){toast('Preencha tipo e cliente.'); if(btn){btn.disabled=false;btn.textContent='Salvar processo';} return;}
     const honStr = (document.getElementById('np-honorarios').value||'0').replace(',','.').replace(/[^0-9.]/g,'');
     const recStr = (document.getElementById('np-recebido').value||'0').replace(',','.').replace(/[^0-9.]/g,'');
     const obj = {
@@ -406,11 +410,13 @@ async function salvarProcesso() {
     console.log('Salvando processo:', obj);
     const {data, error}=await sb.from('processos').insert(obj).select();
     console.log('Resultado:', data, error);
-    if(error){toast('Erro: '+error.message); console.error('Erro insert:', error); return;}
+    if(error){toast('Erro: '+error.message); console.error('Erro insert:', error); if(btn){btn.disabled=false;btn.textContent='Salvar processo';} return;}
     toast('Processo salvo!'); await load(); navTo('processos');
   } catch(e) {
     toast('Erro: '+e.message);
     console.error('Erro catch:', e);
+  } finally {
+    if(btn){btn.disabled=false;btn.textContent='Salvar processo';}
   }
 }
 
@@ -460,6 +466,15 @@ async function addDocItem() {
   await sb.from('checklist_docs').insert({processo_id:activeProc.id,user_id:currentUser.id,texto:txt,done:false});
   document.getElementById('doc-new-text').value='';
   await load(); activeProc=processos.find(p=>p.id===activeProc.id); renderDetalhe();
+}
+
+async function deletarProcesso(id) {
+  if(!confirm('Tem certeza que deseja excluir este processo? Esta ação não pode ser desfeita.')) return;
+  const {error} = await sb.from('processos').delete().eq('id', id);
+  if(error){toast('Erro ao excluir: '+error.message); return;}
+  toast('Processo excluído.');
+  await load();
+  navTo('processos');
 }
 
 async function registrarReingresso() {
