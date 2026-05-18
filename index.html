@@ -371,9 +371,15 @@ window.addEventListener('load', initApp);
 
 async function load() {
   try {
-    const {data,error}=await sb.from('processos').select('*,exigencias(*),checklist_docs(*),exigencia_itens(*)').eq('user_id',currentUser.id).order('created_at',{ascending:false});
+    const {data,error}=await sb.from('processos').select('*, exigencias(*, exigencia_itens(*)), checklist_docs(*)').eq('user_id',currentUser.id).order('created_at',{ascending:false});
     if(error){console.error('Erro load:',error);return;}
-    if(data) processos=data;
+    if(data){
+      // flatten exigencia_itens into top level for compatibility
+      processos = data.map(p => ({
+        ...p,
+        exigencia_itens: p.exigencias ? p.exigencias.flatMap(e => e.exigencia_itens || []) : []
+      }));
+    }
   } catch(e){console.error('Erro load catch:',e);}
 }
 
