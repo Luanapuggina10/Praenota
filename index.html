@@ -667,9 +667,10 @@ function getPrazos(p) {
   }
   const exigsAbertas=(p.exigencias||[]).filter(e=>!e.resolvida);
   exigsAbertas.forEach(e=>{
-    if(e.data_reingresso){
-      const d=diasUteis(e.data_reingresso);
-      prs.push({nome:'Prazo reingresso ('+(e.nota_ref||'Exigência')+')',venc:new Date(e.data_reingresso),dias:d});
+    const dr=e.data_reingresso||e.reingresso;
+    if(dr){
+      const d=diasUteis(dr);
+      prs.push({nome:'Prazo reingresso ('+(e.nota_ref||'Exigência')+')',venc:new Date(dr),dias:d});
     }
   });
   // novo prazo pós-reingresso
@@ -825,8 +826,8 @@ function renderExigencia() {
     const itens=(p.exigencia_itens||[]).filter(i=>i.exigencia_id===exig.id);
     const done=itens.filter(i=>i.done).length, pct=itens.length?Math.round(done/itens.length*100):0;
     const allDone=itens.length>0&&done===itens.length;
-    const diasR=exig.data_reingresso?diasUteis(exig.data_reingresso):null;
-    const vencida=diasR!==null&&diasR===0;
+    const _dr=exig.data_reingresso||exig.reingresso; const diasR=_dr?diasUteis(_dr):null;
+    const vencida=diasR!==null&&diasR<=0;
 
     html+=`<div class="exig-card" style="border-color:${vencida&&!exig.resolvida?'#f5c6c2':'var(--border-med)'};">
       <div class="exig-card-header">
@@ -835,7 +836,7 @@ function renderExigencia() {
           <div style="font-weight:500;font-size:13px;">${exig.nota_ref||'Nota de exigência '+(idx+1)} · Recebida em ${fmtDate(exig.recebimento)}</div>
           <div style="font-size:12px;color:var(--text2);margin-top:2px;">${exig.obs||''}</div>
         </div>
-        ${exig.data_reingresso?`<div style="text-align:right;flex-shrink:0;">
+        ${_dr?`<div style="text-align:right;flex-shrink:0;">
           <div style="font-size:11px;color:var(--text2);">Prazo reingresso</div>
           <div style="font-size:13px;font-weight:500;color:${diasR<=2?'var(--danger)':diasR<=5?'var(--warning)':'var(--text2)'};">${fmtDate(exig.data_reingresso)} · ${daysLabel(diasR)}</div>
           ${vencida?`<span class="tag-prorrog ${exig.prorrogada?'ativa':''}" onclick="toggleProrrogacao('${exig.id}',${!exig.prorrogada})">
@@ -894,8 +895,8 @@ function renderExigencia() {
         <div>
           <div style="font-weight:500;">${e.nota_ref||'Exigência'}</div>
           <div style="font-size:11px;color:var(--text2);margin-top:2px;">
-            Reingresso em ${e.data_reingresso_realizado?fmtDate(e.data_reingresso_realizado):'—'} 
-            ${e.novo_prazo_analise?' · Novo prazo análise: '+fmtDate(e.novo_prazo_analise):''}
+            Reingresso em ${e.data_reingresso_realizado?fmtDate(e.data_reingresso_realizado):(e.reingresso?fmtDate(e.reingresso):'—')} 
+            ${e.novo_prazo_analise?' · Novo prazo de análise: '+fmtDate(e.novo_prazo_analise):''}
           </div>
         </div>
       </div>`).join('')}
