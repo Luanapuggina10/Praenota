@@ -319,14 +319,7 @@
 <script>
 const SUPABASE_URL = 'https://sdzrvdcgspukdnlbutzf.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNkenJ2ZGNnc3B1a2RubGJ1dHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2NTExOTcsImV4cCI6MjA5NDIyNzE5N30.Zsi_kLEefRrMIfLLaIiNVxngYNlH1VZazeS1VyUwUQA';
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-    flowType: 'pkce'
-  }
-});
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let currentUser = null, processos = [], activeProc = null;
 
@@ -353,14 +346,28 @@ function showErr(msg,ok=false) {
   el.textContent=msg; el.style.color=ok?'var(--success)':'var(--danger)'; el.style.display='block';
 }
 
-sb.auth.onAuthStateChange(async(_,session)=>{
-  if(session){
-    currentUser=session.user;
-    document.getElementById('auth-screen').style.display='none';
-    document.getElementById('app').style.display='block';
-    await load(); renderPainel();
+async function initApp() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) {
+    currentUser = session.user;
+    document.getElementById('auth-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    await load();
+    renderPainel();
   }
-});
+  sb.auth.onAuthStateChange(async (event, session) => {
+    if (session && !currentUser) {
+      currentUser = session.user;
+      document.getElementById('auth-screen').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      await load();
+      renderPainel();
+    } else if (!session) {
+      currentUser = null;
+    }
+  });
+}
+window.addEventListener('load', initApp);
 
 async function load() {
   try {
