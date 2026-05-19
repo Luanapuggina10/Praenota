@@ -278,7 +278,7 @@
       <div class="metrics" id="metrics-fin"></div>
       <div class="card" style="padding:0;">
         <table class="tbl">
-          <thead><tr><th>Processo</th><th>Total</th><th>Recebido / Mês</th><th>A receber / Previsão</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Processo</th><th>Contratado</th><th>Recebido</th><th>A receber</th><th>Status</th><th style="text-align:right;">Ações</th></tr></thead>
           <tbody id="tbody-fin"></tbody>
         </table>
       </div>
@@ -314,6 +314,34 @@
       </div>
     </div>
 
+  </div>
+</div>
+
+<!-- MODAL PARCELA -->
+<div class="modal-bg" id="modal-parcela">
+  <div class="modal" style="width:420px;">
+    <div class="modal-title" id="modal-parcela-title">Nova parcela</div>
+    <div class="form-grid" style="margin-bottom:1rem;">
+      <div class="field full"><label>Descrição (opcional)</label>
+        <input type="text" id="parcela-descricao" placeholder="Ex: Entrada, 1ª parcela, Saldo final...">
+      </div>
+      <div class="field"><label>Valor (R$)</label>
+        <input type="number" id="parcela-valor" placeholder="0">
+      </div>
+      <div class="field"><label>Data de vencimento</label>
+        <input type="date" id="parcela-vencimento">
+      </div>
+      <div class="field"><label>Data de pagamento</label>
+        <input type="date" id="parcela-pagamento" placeholder="Deixe em branco se não pago">
+      </div>
+      <div class="field full" style="display:none;" id="parcela-id-field">
+        <input type="hidden" id="parcela-id">
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn" onclick="fecharModal('modal-parcela')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarParcela()">Salvar parcela</button>
+    </div>
   </div>
 </div>
 
@@ -442,7 +470,7 @@ window.addEventListener('load', initApp);
 
 async function load() {
   try {
-    const {data,error}=await sb.from('processos').select('*, exigencias(*, exigencia_itens(*)), checklist_docs(*)').eq('user_id',currentUser.id).order('created_at',{ascending:false});
+    const {data,error}=await sb.from('processos').select('*, exigencias(*, exigencia_itens(*)), checklist_docs(*), parcelas(*)').eq('user_id',currentUser.id).order('created_at',{ascending:false});
     if(error){console.error('Erro load:',error);return;}
     if(data){
       // flatten exigencia_itens into top level for compatibility
@@ -550,6 +578,62 @@ async function addDocItem() {
   await load(); activeProc=processos.find(p=>p.id===activeProc.id); renderDetalhe();
 }
 
+// ── PARCELAS ──────────────────────────────────────────────────────────────
+let _parcelaEditId = null;
+
+// lookup map for parcelas
+function novaParcela(processoId) {
+  abrirModalParcela(processoId, null);
+}
+
+function editarParcela(parcelaId) {
+  const pa = processos.flatMap(p=>(p.parcelas||[])).find(pa=>pa.id===parcelaId);
+  const proc = processos.find(p=>(p.parcelas||[]).some(pa=>pa.id===parcelaId));
+  if(pa && proc) abrirModalParcela(proc.id, pa);
+}
+
+function abrirModalParcela(processoId, parcela) {
+  _parcelaEditId = parcela ? parcela.id : null;
+  window._parcelaProcessoId = processoId;
+  document.getElementById('modal-parcela-title').textContent = parcela ? 'Editar parcela' : 'Nova parcela';
+  document.getElementById('parcela-descricao').value = parcela ? (parcela.descricao||'') : '';
+  document.getElementById('parcela-valor').value = parcela ? parcela.valor : '';
+  document.getElementById('parcela-vencimento').value = parcela ? (parcela.vencimento||'') : '';
+  document.getElementById('parcela-pagamento').value = parcela ? (parcela.pagamento||'') : '';
+  document.getElementById('modal-parcela').classList.add('open');
+}
+
+async function salvarParcela() {
+  const valor = parseFloat(document.getElementById('parcela-valor').value);
+  if(!valor) { toast('Informe o valor da parcela.'); return; }
+  const obj = {
+    processo_id: window._parcelaProcessoId,
+    user_id: currentUser.id,
+    descricao: document.getElementById('parcela-descricao').value || null,
+    valor,
+    vencimento: document.getElementById('parcela-vencimento').value || null,
+    pagamento: document.getElementById('parcela-pagamento').value || null,
+  };
+  let error;
+  if(_parcelaEditId) {
+    ({error} = await sb.from('parcelas').update(obj).eq('id', _parcelaEditId));
+  } else {
+    ({error} = await sb.from('parcelas').insert(obj));
+  }
+  if(error) { toast('Erro: '+error.message); return; }
+  toast(_parcelaEditId ? 'Parcela atualizada!' : 'Parcela adicionada!');
+  fecharModal('modal-parcela');
+  await load();
+  renderFinanceiro();
+}
+
+async function deletarParcela(id) {
+  if(!confirm('Excluir esta parcela?')) return;
+  await sb.from('parcelas').delete().eq('id', id);
+  await load();
+  renderFinanceiro();
+}
+
 async function concluirRegistro() {
   if(!activeProc) return;
   if(activeProc.etapa === 'concluido') {
@@ -616,6 +700,7 @@ function abrirModalExig() {
 function fecharModal(id){document.getElementById(id).classList.remove('open');}
 document.getElementById('modal-exig').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-exig');});
 document.getElementById('modal-edit').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-edit');});
+document.getElementById('modal-parcela').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-parcela');});
 document.getElementById('modal-reingresso').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-reingresso');});
 
 function selRp(k,val,cls) {
@@ -1059,74 +1144,137 @@ function renderExigencia() {
 }
 
 // RENDER PRAZOS
+let _prazosFiltrados = [];
+
+function renderListaPrazos(filtro) {
+  const lista = filtro==='v2' ? _prazosFiltrados.filter(p=>p.dias<=2)
+    : filtro==='v5' ? _prazosFiltrados.filter(p=>p.dias>2&&p.dias<=5)
+    : filtro==='v10' ? _prazosFiltrados.filter(p=>p.dias>5&&p.dias<=10)
+    : _prazosFiltrados;
+  const el = document.getElementById('lista-prazos');
+  if(!el) return;
+  el.innerHTML = lista.length ? lista.map(function(p){
+    return '<div class="prazo-item '+pCls(p.dias)+'">'+pIcon(p.dias)
+      +'<div style="flex:1"><div class="pname">'+p.nome+'</div>'
+      +'<div class="psub">'+p.proc.cliente+' · '+(p.proc.protocolo||'—')+' · Vence '+fmtDate(p.venc)+'</div></div>'
+      +'<span class="pdays '+dCls(p.dias)+'">'+daysLabel(p.dias)+'</span>'
+      +'<button class="btn" data-action="abrir-proc" data-id="'+p.proc.id+'">Abrir</button>'
+      +'</div>';
+  }).join('') : '<div class="empty"><i class="ti ti-circle-check"></i>Nenhum prazo neste filtro</div>';
+  document.querySelectorAll('.metric-prazo').forEach(function(el){ el.style.outline='none'; });
+  var sel = document.getElementById('metric-prazo-'+filtro);
+  if(sel) sel.style.outline='2px solid var(--accent)';
+}
+
 function renderPrazos() {
-  const all=processos.flatMap(p=>getPrazos(p).map(pr=>({...pr,proc:p}))).sort((a,b)=>a.dias-b.dias);
-  // sort ascending (most urgent first)
-  all.sort((a,b)=>a.dias-b.dias);
-  const v2=all.filter(p=>p.dias<=2), v5=all.filter(p=>p.dias>2&&p.dias<=5), v10=all.filter(p=>p.dias>5&&p.dias<=10), vrest=all.filter(p=>p.dias>10);
-  let filtroAtivo='todos';
-  function renderListaPrazos(filtro){
-    filtroAtivo=filtro;
-    const lista = filtro==='v2'?v2 : filtro==='v5'?v5 : filtro==='v10'?v10 : filtro==='vrest'?vrest : all;
-    document.getElementById('lista-prazos').innerHTML=lista.length?lista.map(p=>`
-      <div class="prazo-item ${pCls(p.dias)}">${pIcon(p.dias)}
-        <div style="flex:1;"><div class="pname">${p.nome}</div><div class="psub">${p.proc.cliente} · ${p.proc.protocolo||'—'} · Vence ${fmtDate(p.venc)}</div></div>
-        <span class="pdays ${dCls(p.dias)}">${daysLabel(p.dias)}</span>
-        <button class="btn" onclick="abrirDetalhe('${p.proc.id}')">Abrir</button>
-      </div>`).join(''):'<div class="empty"><i class="ti ti-circle-check"></i>Nenhum prazo neste filtro</div>';
-    document.querySelectorAll('.metric-prazo').forEach(el=>el.style.border='1px solid var(--border)');
-    const sel=document.getElementById('metric-prazo-'+filtro);
-    if(sel) sel.style.border='2px solid var(--accent)';
-  }
-  document.getElementById('metrics-prazos').innerHTML=`
-    <div class="metric metric-prazo" id="metric-prazo-v2" style="cursor:pointer;border:1px solid var(--border);" onclick="renderListaPrazos('v2')">
-      <div class="metric-label">Hoje / amanhã</div>
-      <div class="metric-value" style="color:${v2.length>0?'var(--danger)':'inherit'}">${v2.length}</div>
-    </div>
-    <div class="metric metric-prazo" id="metric-prazo-v5" style="cursor:pointer;border:1px solid var(--border);" onclick="renderListaPrazos('v5')">
-      <div class="metric-label">3 a 5 dias úteis</div>
-      <div class="metric-value" style="color:${v5.length>0?'var(--warning)':'inherit'}">${v5.length}</div>
-    </div>
-    <div class="metric metric-prazo" id="metric-prazo-v10" style="cursor:pointer;border:1px solid var(--border);" onclick="renderListaPrazos('v10')">
-      <div class="metric-label">6 a 10 dias úteis</div>
-      <div class="metric-value">${v10.length}</div>
-    </div>
-    <div class="metric metric-prazo" id="metric-prazo-todos" style="cursor:pointer;border:2px solid var(--accent);" onclick="renderListaPrazos('todos')">
-      <div class="metric-label">Total de prazos</div>
-      <div class="metric-value">${all.length}</div>
-    </div>`;
+  const all = processos.flatMap(function(p){ return getPrazos(p).map(function(pr){ return Object.assign({},pr,{proc:p}); }); });
+  all.sort(function(a,b){ return a.dias-b.dias; });
+  _prazosFiltrados = all;
+  const v2=all.filter(function(p){return p.dias<=2;}).length;
+  const v5=all.filter(function(p){return p.dias>2&&p.dias<=5;}).length;
+  const v10=all.filter(function(p){return p.dias>5&&p.dias<=10;}).length;
+  document.getElementById('metrics-prazos').innerHTML =
+    '<div class="metric metric-prazo" id="metric-prazo-v2" style="cursor:pointer" data-filtro="v2">'
+    +'<div class="metric-label">Hoje / amanhã</div>'
+    +'<div class="metric-value" style="color:'+(v2>0?'var(--danger)':'inherit')+'">'+v2+'</div></div>'
+    +'<div class="metric metric-prazo" id="metric-prazo-v5" style="cursor:pointer" data-filtro="v5">'
+    +'<div class="metric-label">3 a 5 dias úteis</div>'
+    +'<div class="metric-value" style="color:'+(v5>0?'var(--warning)':'inherit')+'">'+v5+'</div></div>'
+    +'<div class="metric metric-prazo" id="metric-prazo-v10" style="cursor:pointer" data-filtro="v10">'
+    +'<div class="metric-label">6 a 10 dias úteis</div>'
+    +'<div class="metric-value">'+v10+'</div></div>'
+    +'<div class="metric metric-prazo" id="metric-prazo-todos" style="cursor:pointer;outline:2px solid var(--accent)" data-filtro="todos">'
+    +'<div class="metric-label">Total de prazos</div>'
+    +'<div class="metric-value">'+all.length+'</div></div>';
   renderListaPrazos('todos');
+  // Event delegation for metrics
+  var mp = document.getElementById('metrics-prazos');
+  if(mp) mp.onclick = function(e){ var m=e.target.closest('[data-filtro]'); if(m) renderListaPrazos(m.dataset.filtro); };
+  // Event delegation for prazos list
+  var lp = document.getElementById('lista-prazos');
+  if(lp) lp.onclick = function(e){ var btn=e.target.closest('[data-action="abrir-proc"]'); if(btn) abrirDetalhe(btn.dataset.id); };
 }
 
 // RENDER FINANCEIRO
 function renderFinanceiro() {
-  const tot=processos.reduce((a,p)=>a+(p.honorarios||0),0), rec=processos.reduce((a,p)=>a+(p.recebido||0),0), pend=tot-rec;
-  document.getElementById('metrics-fin').innerHTML=`
-    <div class="metric"><div class="metric-label">Total faturado</div><div class="metric-value">R$${Math.round(tot).toLocaleString('pt-BR')}</div></div>
-    <div class="metric"><div class="metric-label">Recebido</div><div class="metric-value" style="color:var(--success)">R$${Math.round(rec).toLocaleString('pt-BR')}</div></div>
-    <div class="metric"><div class="metric-label">A receber</div><div class="metric-value" style="color:${pend>0?'var(--warning)':'inherit'}">R$${Math.round(pend).toLocaleString('pt-BR')}</div></div>
-    <div class="metric"><div class="metric-label">Com saldo pendente</div><div class="metric-value">${processos.filter(p=>(p.honorarios||0)>(p.recebido||0)).length}</div></div>`;
-  document.getElementById('tbody-fin').innerHTML=processos.map(p=>{
-    const s=(p.honorarios||0)-(p.recebido||0);
-    const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-    const fmtMes = d => { if(!d) return '—'; const dt=new Date(d+'T12:00:00'); return meses[dt.getMonth()]+'/'+dt.getFullYear(); };
-    return`<tr>
-      <td><div style="font-weight:500;">${p.cliente}</div><div class="proc-tipo">${p.tipo} · ${p.protocolo||'—'}</div></td>
-      <td>R$ ${(p.honorarios||0).toLocaleString('pt-BR')}</td>
-      <td>
-        <div style="color:var(--success);">R$ ${(p.recebido||0).toLocaleString('pt-BR')}</div>
-        ${p.data_recebimento?'<div style="font-size:11px;color:var(--text3);">'+fmtMes(p.data_recebimento)+'</div>':''}
-      </td>
-      <td>
-        <div style="color:${s>0?'var(--warning)':'var(--text3)'};">${s>0?'R$ '+s.toLocaleString('pt-BR'):'—'}</div>
-        ${s>0?`<div style="display:flex;align-items:center;gap:4px;margin-top:2px;">
-          <span style="font-size:11px;color:var(--text3);">${p.previsao_recebimento?fmtMes(p.previsao_recebimento):'Sem previsão'}</span>
-          <button class="btn" style="font-size:10px;padding:1px 6px;" onclick="editarPrevisao('${p.id}','${p.previsao_recebimento||''}')">✏</button>
-        </div>`:''}
-      </td>
-      <td><span class="badge ${s===0?'b-success':s===p.honorarios?'b-danger':'b-warn'}">${s===0?'Quitado':s===p.honorarios?'Pendente':'Parcial'}</span></td>
-      <td><button class="btn" onclick="abrirDetalhe('${p.id}')"><i class="ti ti-arrow-right" style="font-size:13px;"></i></button></td>
-    </tr>`;}).join('');
+  const todasParcelas = processos.flatMap(function(p){ return (p.parcelas||[]).map(function(pa){ return Object.assign({},pa,{proc:p}); }); });
+  const pagas = todasParcelas.filter(function(pa){ return !!pa.pagamento; });
+  const emAberto = todasParcelas.filter(function(pa){ return !pa.pagamento; });
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const vencidas = emAberto.filter(function(pa){ return pa.vencimento && new Date(pa.vencimento+'T12:00:00') < hoje; });
+  const totalContratado = processos.reduce(function(a,p){ return a+(p.honorarios||0); }, 0);
+  const totalPago = pagas.reduce(function(a,pa){ return a+pa.valor; }, 0);
+  const totalAberto = emAberto.reduce(function(a,pa){ return a+pa.valor; }, 0);
+
+  document.getElementById('metrics-fin').innerHTML =
+    '<div class="metric"><div class="metric-label">Total contratado</div><div class="metric-value">R$'+Math.round(totalContratado).toLocaleString('pt-BR')+'</div></div>'
+    +'<div class="metric"><div class="metric-label">Recebido</div><div class="metric-value" style="color:var(--success)">R$'+Math.round(totalPago).toLocaleString('pt-BR')+'</div></div>'
+    +'<div class="metric"><div class="metric-label">A receber</div><div class="metric-value" style="color:'+(totalAberto>0?'var(--warning)':'inherit')+'">R$'+Math.round(totalAberto).toLocaleString('pt-BR')+'</div></div>'
+    +'<div class="metric"><div class="metric-label">Parcelas vencidas</div><div class="metric-value" style="color:'+(vencidas.length>0?'var(--danger)':'inherit')+'">'+vencidas.length+'</div></div>';
+
+  const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  function fmtMes(d) {
+    if(!d) return null;
+    var dt = new Date(d+'T12:00:00');
+    return meses[dt.getMonth()]+'/'+String(dt.getFullYear()).slice(2);
+  }
+
+  var rows = '';
+  processos.forEach(function(p) {
+    var parcelas = (p.parcelas||[]).slice().sort(function(a,b){
+      if(!a.vencimento) return 1; if(!b.vencimento) return -1;
+      return a.vencimento.localeCompare(b.vencimento);
+    });
+    var totalPagoP = parcelas.filter(function(pa){ return !!pa.pagamento; }).reduce(function(a,pa){ return a+pa.valor; }, 0);
+    var totalAbertoP = parcelas.filter(function(pa){ return !pa.pagamento; }).reduce(function(a,pa){ return a+pa.valor; }, 0);
+    var statusCls = totalAbertoP===0&&totalPagoP>0 ? 'b-success' : totalPagoP===0 ? 'b-danger' : 'b-warn';
+    var statusTxt = totalAbertoP===0&&totalPagoP>0 ? 'Quitado' : totalPagoP===0 ? 'Pendente' : 'Parcial';
+    rows += '<tr>'
+      +'<td style="padding:10px 12px"><div style="font-weight:500">'+p.cliente+'</div><div class="proc-tipo">'+p.tipo+' · '+(p.protocolo||'—')+'</div></td>'
+      +'<td style="padding:10px 12px">R$ '+(p.honorarios||0).toLocaleString('pt-BR')+'</td>'
+      +'<td style="padding:10px 12px;color:var(--success)">R$ '+totalPagoP.toLocaleString('pt-BR')+'</td>'
+      +'<td style="padding:10px 12px;color:'+(totalAbertoP>0?'var(--warning)':'var(--text3)')+'">R$ '+totalAbertoP.toLocaleString('pt-BR')+'</td>'
+      +'<td style="padding:10px 12px"><span class="badge '+statusCls+'">'+statusTxt+'</span></td>'
+      +'<td style="padding:10px 12px;text-align:right">'
+      +'<button class="btn" style="font-size:11px" data-action="nova-parcela" data-id="'+p.id+'"><i class="ti ti-plus"></i> Parcela</button> '
+      +'<button class="btn" style="font-size:11px" data-action="abrir-detalhe" data-id="'+p.id+'"><i class="ti ti-arrow-right" style="font-size:12px"></i></button>'
+      +'</td></tr>';
+
+    parcelas.forEach(function(pa) {
+      var venc = fmtMes(pa.vencimento);
+      var pago = fmtMes(pa.pagamento);
+      var vencDate = pa.vencimento ? new Date(pa.vencimento+'T12:00:00') : null;
+      var vencida = !pa.pagamento && vencDate && vencDate < hoje;
+      var cor = pa.pagamento ? 'var(--success)' : vencida ? 'var(--danger)' : 'var(--warning)';
+      rows += '<tr style="background:var(--surface2)">'
+        +'<td style="padding:6px 12px 6px 28px;font-size:12px;color:var(--text2)">'+(pa.descricao||'Parcela')+'</td>'
+        +'<td style="padding:6px 12px;font-size:12px">R$ '+pa.valor.toLocaleString('pt-BR')+'</td>'
+        +'<td style="padding:6px 12px;font-size:12px;color:'+(vencida?'var(--danger)':'var(--text2)')+'">Venc: '+(venc||'—')+'</td>'
+        +'<td style="padding:6px 12px;font-size:12px;color:'+cor+'">'+(pago ? '✓ '+pago : vencida ? 'Vencida' : 'Aguardando')+'</td>'
+        +'<td></td>'
+        +'<td style="padding:6px 12px;text-align:right">'
+        +'<button class="btn" style="font-size:11px;padding:3px 7px;margin-right:4px" data-action="editar-parcela" data-id="'+pa.id+'"><i class="ti ti-edit" style="font-size:11px"></i></button>'
+        +'<button class="btn" style="font-size:11px;padding:3px 7px;color:var(--danger);border-color:#f5c6c2" data-action="deletar-parcela" data-id="'+pa.id+'"><i class="ti ti-trash" style="font-size:11px"></i></button>'
+        +'</td></tr>';
+    });
+  });
+
+  document.getElementById('tbody-fin').innerHTML = rows || '<tr><td colspan="6"><div class="empty"><i class="ti ti-coin-off"></i>Nenhum processo</div></td></tr>';
+
+  // Event delegation for fin table buttons
+  var tbody = document.getElementById('tbody-fin');
+  if(tbody) {
+    tbody.onclick = function(e) {
+      var btn = e.target.closest('[data-action]');
+      if(!btn) return;
+      var action = btn.dataset.action;
+      var id = btn.dataset.id;
+      if(action === 'nova-parcela') novaParcela(id);
+      else if(action === 'abrir-detalhe') abrirDetalhe(id);
+      else if(action === 'editar-parcela') editarParcela(id);
+      else if(action === 'deletar-parcela') deletarParcela(id);
+    };
+  }
 }
 
 // NAV
