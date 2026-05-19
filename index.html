@@ -226,9 +226,25 @@
     </div>
 
     <div class="page" id="page-processos">
-      <div class="row-between" style="margin-bottom:1.5rem;">
+      <div class="row-between" style="margin-bottom:1rem;">
         <div class="page-title" style="margin-bottom:0;">Processos</div>
         <button class="btn btn-primary" onclick="navTo('novo-processo')"><i class="ti ti-plus"></i> Novo processo</button>
+      </div>
+      <div style="display:flex;gap:10px;margin-bottom:1rem;flex-wrap:wrap;">
+        <input id="proc-search" type="text" class="inline-input" placeholder="Buscar por cliente ou protocolo..." style="flex:1;min-width:200px;" oninput="renderProcessos()">
+        <select id="proc-tipo-filter" class="inline-input" style="min-width:200px;" onchange="renderProcessos()">
+          <option value="">Todos os tipos</option>
+          <option>Usucapião extrajudicial</option>
+          <option>Retificação de área</option>
+          <option>Estremação</option>
+          <option>Unificação</option>
+          <option>Instituição de condomínio</option>
+          <option>Incorporação imobiliária</option>
+          <option>Regularização imobiliária</option>
+          <option>Inventário extrajudicial</option>
+          <option>Divórcio extrajudicial</option>
+          <option>Outro</option>
+        </select>
       </div>
       <div class="card" style="padding:0;">
         <table class="tbl">
@@ -261,7 +277,7 @@
       <div class="metrics" id="metrics-fin"></div>
       <div class="card" style="padding:0;">
         <table class="tbl">
-          <thead><tr><th>Processo</th><th>Total</th><th>Recebido</th><th>A receber</th><th>Status</th></tr></thead>
+          <thead><tr><th>Processo</th><th>Total</th><th>Recebido / Mês</th><th>A receber / Previsão</th><th>Status</th><th></th></tr></thead>
           <tbody id="tbody-fin"></tbody>
         </table>
       </div>
@@ -321,7 +337,10 @@
       <div class="field"><label>Data de apresentação</label><input type="date" id="edit-apresentacao"></div>
       <div class="field"><label>Honorários (R$)</label><input type="number" id="edit-honorarios"></div>
       <div class="field"><label>Já recebido (R$)</label><input type="number" id="edit-recebido"></div>
+      <div class="field"><label>Data de recebimento</label><input type="date" id="edit-data-recebimento"></div>
+      <div class="field"><label>Previsão de recebimento</label><input type="date" id="edit-previsao-recebimento"></div>
       <div class="field"><label>E-mail do cliente</label><input type="email" id="edit-email-cliente"></div>
+      <div class="field full"><label>Observações</label><textarea id="edit-observacao" rows="3" placeholder="Anotações sobre o processo..."></textarea></div>
     </div>
     <div class="form-actions">
       <button class="btn" onclick="fecharModal('modal-edit')">Cancelar</button>
@@ -461,13 +480,25 @@ async function salvarProcesso() {
     const {data, error}=await sb.from('processos').insert(obj).select();
     console.log('Resultado:', data, error);
     if(error){toast('Erro: '+error.message); console.error('Erro insert:', error); if(btn){btn.disabled=false;btn.textContent='Salvar processo';} return;}
-    toast('Processo salvo!'); await load(); navTo('processos');
+    toast('Processo salvo!');
+    // criar checklist padrão se existir para o tipo
+    if(data && data[0]) await criarChecklistPadrao(data[0].id, tipo);
+    await load(); navTo('processos');
   } catch(e) {
     toast('Erro: '+e.message);
     console.error('Erro catch:', e);
   } finally {
     if(btn){btn.disabled=false;btn.textContent='Salvar processo';}
   }
+}
+
+const CHECKLISTS = {"Unificação": ["Matrículas atualizadas de todos os imóveis envolvidos", "Planta de unificação", "Memorial descritivo unificado", "ART/RRT do responsável técnico", "Documentos pessoais", "Requerimento assinado pelos proprietários", "Procuração (se houver representante)", "Anuência municipal/alvará/aprovação da prefeitura (quando exigido)"], "Estremação": ["Matrícula atualizada do imóvel-mãe", "Planta de estremação", "Memorial descritivo individualizado", "ART/RRT", "Levantamento topográfico/georreferenciamento", "Cadastro municipal", "Documentos pessoais", "Ata notarial", "Declaração de posse", "Procuração", "Valor do Imóvel"], "Retificação de área": ["Matrícula atualizada", "Planta assinada", "Memorial descritivo", "ART/RRT", "Levantamento topográfico", "Certidão cadastral municipal", "Documentos pessoais", "Anuência dos confrontantes com firma reconhecida", "Documentos dos confrontantes", "Requerimento ao cartório", "Procuração", "Valor do Imóvel"], "Usucapião extrajudicial": ["Matrícula atualizada ou certidão negativa de matrícula", "Planta e memorial descritivo", "ART/RRT", "Cadastro municipal", "IPTU/ITR", "Fotos do imóvel", "Documentos pessoais do requerente", "Contas de água/luz antigas", "IPTU pago", "Contratos particulares", "Declarações/testemunhas", "Anuência dos confrontantes", "Qualificação completa dos confrontantes", "Ata notarial lavrada em cartório", "Certidões negativas cíveis e federais", "Procuração", "Justo título (quando houver)", "Valor do Imóvel"], "Instituição de condomínio": ["Matrícula atualizada do terreno/imóvel", "Habite-se", "CND do INSS da obra", "Projeto arquitetônico aprovado", "Convenção de condomínio", "Quadro de áreas (NBR 12.721)", "Memorial de incorporação (quando aplicável)", "Planta aprovada", "ART/RRT", "Documentos pessoais", "Requerimento ao registro de imóveis"], "Incorporação imobiliária": ["Matrícula atualizada do terreno", "Certidão negativa de ônus e ações reais", "Certidão vintenária (quando exigida)", "Projeto arquitetônico aprovado", "Alvará de construção", "Memorial descritivo da obra", "Quadro de áreas – NBR 12.721", "Discriminação das unidades autônomas", "ART/RRT dos responsáveis técnicos", "DANC ou Licença ambiental", "Documentos do incorporador", "Certidões cíveis", "Certidões fiscais federais", "Certidões estaduais", "Certidões municipais", "Certidão trabalhista", "Certidão da Justiça Federal", "Certidão de protestos", "Minuta da convenção de condomínio", "Memorial de incorporação", "Declaração sobre vagas de garagem", "Declaração das frações ideais"]};
+
+async function criarChecklistPadrao(processoId, tipo) {
+  const items = CHECKLISTS[tipo];
+  if(!items || !items.length) return;
+  const rows = items.map(t => ({processo_id: processoId, user_id: currentUser.id, texto: t, done: false}));
+  await sb.from('checklist_docs').insert(rows);
 }
 
 async function salvarExigencia() {
@@ -525,6 +556,7 @@ async function deletarExigencia(id) {
   toast('Exig\u00eancia exclu\u00edda.');
   await load();
   activeProc = processos.find(p=>p.id===activeProc.id);
+  renderObservacao();
   renderExigencia();
 }
 
@@ -631,6 +663,9 @@ function abrirModalEdit() {
   document.getElementById('edit-honorarios').value=p.honorarios||0;
   document.getElementById('edit-recebido').value=p.recebido||0;
   document.getElementById('edit-email-cliente').value=p.email_cliente||'';
+  document.getElementById('edit-observacao').value=p.observacao||'';
+  document.getElementById('edit-data-recebimento').value=p.data_recebimento||'';
+  document.getElementById('edit-previsao-recebimento').value=p.previsao_recebimento||'';
   document.getElementById('modal-edit').classList.add('open');
 }
 
@@ -647,6 +682,9 @@ async function salvarEdicao() {
     honorarios:parseFloat(document.getElementById('edit-honorarios').value)||0,
     recebido:parseFloat(document.getElementById('edit-recebido').value)||0,
     email_cliente:document.getElementById('edit-email-cliente').value||null,
+    observacao:document.getElementById('edit-observacao').value||null,
+    data_recebimento:document.getElementById('edit-data-recebimento').value||null,
+    previsao_recebimento:document.getElementById('edit-previsao-recebimento').value||null,
   }).eq('id',activeProc.id);
   if(error){toast('Erro: '+error.message);return;}
   toast('Processo atualizado!');
@@ -727,7 +765,17 @@ function renderPainel() {
 
 // RENDER PROCESSOS
 function renderProcessos() {
-  document.getElementById('tbody-processos').innerHTML=processos.length?processos.map(p=>{
+  // render search bar
+  const searchBar = document.getElementById('proc-search');
+  const tipoFilter = document.getElementById('proc-tipo-filter');
+  const termoBusca = searchBar ? searchBar.value.toLowerCase() : '';
+  const tipoSel = tipoFilter ? tipoFilter.value : '';
+  const filtered = processos.filter(p=>{
+    const matchNome = !termoBusca || p.cliente.toLowerCase().includes(termoBusca) || (p.protocolo||'').toLowerCase().includes(termoBusca);
+    const matchTipo = !tipoSel || p.tipo === tipoSel;
+    return matchNome && matchTipo;
+  });
+  document.getElementById('tbody-processos').innerHTML=filtered.length?filtered.map(p=>{
     const [bc,bl]=etapaInfo(p),pr=getPrazos(p)[0];
     return`<tr>
       <td class="mono">${p.protocolo||'—'}<br>${p.interno||''}</td>
@@ -736,7 +784,7 @@ function renderProcessos() {
       <td><span class="badge ${bc}">${bl}</span></td>
       <td><span class="${pr?dCls(pr.dias):''}" style="font-size:12px;">${pr?daysLabel(pr.dias):'—'}</span></td>
       <td><button class="btn" onclick="abrirDetalhe('${p.id}')">Abrir</button></td>
-    </tr>`;}).join(''):'<tr><td colspan="6"><div class="empty"><i class="ti ti-folder-off"></i>Nenhum processo cadastrado</div></td></tr>';
+    </tr>`;}).join(''):'<tr><td colspan="6"><div class="empty"><i class="ti ti-folder-off"></i>Nenhum processo encontrado</div></td></tr>';
 }
 
 // RENDER DETALHE
@@ -751,13 +799,21 @@ function abrirDetalhe(id) {
 function renderDetalhe() {
   const p=activeProc, prazos=getPrazos(p), [bc,bl]=etapaInfo(p);
   const docs=p.checklist_docs||[], dd=docs.filter(d=>d.done).length;
+  // Build dynamic timeline with one entry per NE
   const etapas=[
     {lbl:'Documentação reunida',dt:null,e:p.etapa!=='docs'?'done':'active'},
     {lbl:'Apresentação ao cartório',dt:p.apresentacao?fmtDate(p.apresentacao):null,e:p.apresentacao&&p.etapa!=='docs'?'done':'pending'},
-    {lbl:'Análise / prenotação em curso',dt:null,e:['analise','analise_reg','exigencia'].includes(p.exigencias?.[0]?'exigencia':p.etapa)?'active':['reingresso','concluido'].includes(p.etapa)?'done':'pending'},
-    {lbl:'Exigência / reingresso',dt:p.exigencias?.[0]?.recebimento?fmtDate(p.exigencias[0].recebimento):null,e:p.exigencias?.[0]?'exig':p.etapa==='reingresso'?'done':'pending'},
-    {lbl:'Registro concluído',dt:null,e:p.etapa==='concluido'?'done':'pending'},
+    {lbl:'Análise / prenotação em curso',dt:null,e:!(p.exigencias&&p.exigencias.length)&&['analise','analise_reg'].includes(p.etapa)?'active':p.etapa==='concluido'||((p.exigencias||[]).length>0)?'done':'pending'},
   ];
+  // Add one entry per NE (both open and resolved)
+  (p.exigencias||[]).forEach(function(e){
+    if(e.resolvida){
+      etapas.push({lbl:'NE: '+(e.nota_ref||'Exigência')+' — Reingressada',dt:e.data_reingresso_realizado?fmtDate(e.data_reingresso_realizado):null,e:'done'});
+    } else {
+      etapas.push({lbl:'NE: '+(e.nota_ref||'Exigência')+' — Em aberto',dt:e.recebimento?fmtDate(e.recebimento):null,e:'exig'});
+    }
+  });
+  etapas.push({lbl:'Registro concluído',dt:null,e:p.etapa==='concluido'?'done':'pending'});
   const dc={done:'dot-done',active:'dot-active',exig:'dot-exig',pending:'dot-pend'};
   const saldo=(p.honorarios||0)-(p.recebido||0);
   document.getElementById('detalhe-content').innerHTML=`
@@ -814,6 +870,34 @@ function renderDetalhe() {
       </div>
     </div>`;
   renderExigencia();
+}
+
+
+async function editarPrevisao(id, atual) {
+  const val = prompt('Data de previsão de recebimento (AAAA-MM-DD):', atual);
+  if(val === null) return;
+  await sb.from('processos').update({previsao_recebimento: val||null}).eq('id', id);
+  await load(); renderFinanceiro();
+}
+
+function renderObservacao() {
+  const el = document.getElementById('card-observacao');
+  if(!el || !activeProc) return;
+  el.innerHTML = '<div class="row-between" style="margin-bottom:8px;">'
+    + '<div class="card-title" style="margin-bottom:0;">Observações</div>'
+    + '<button class="btn" onclick="salvarObservacao()" style="font-size:11px;">Salvar</button>'
+    + '</div>'
+    + '<textarea id="obs-textarea" style="width:100%;min-height:80px;padding:9px 11px;border:1px solid var(--border-med);border-radius:var(--r);font-size:13px;font-family:inherit;color:var(--text);background:white;resize:vertical;" placeholder="Anotações sobre o andamento do processo...">'
+    + (activeProc.observacao||'')
+    + '</textarea>';
+}
+
+async function salvarObservacao() {
+  const val = document.getElementById('obs-textarea')?.value;
+  if(val === undefined) return;
+  await sb.from('processos').update({observacao: val}).eq('id', activeProc.id);
+  activeProc.observacao = val;
+  toast('Observação salva!');
 }
 
 function renderExigencia() {
@@ -941,18 +1025,41 @@ function renderExigencia() {
 // RENDER PRAZOS
 function renderPrazos() {
   const all=processos.flatMap(p=>getPrazos(p).map(pr=>({...pr,proc:p}))).sort((a,b)=>a.dias-b.dias);
-  const v2=all.filter(p=>p.dias<=2).length,v5=all.filter(p=>p.dias<=5).length,v10=all.filter(p=>p.dias<=10).length;
+  // sort ascending (most urgent first)
+  all.sort((a,b)=>a.dias-b.dias);
+  const v2=all.filter(p=>p.dias<=2), v5=all.filter(p=>p.dias>2&&p.dias<=5), v10=all.filter(p=>p.dias>5&&p.dias<=10), vrest=all.filter(p=>p.dias>10);
+  let filtroAtivo='todos';
+  function renderListaPrazos(filtro){
+    filtroAtivo=filtro;
+    const lista = filtro==='v2'?v2 : filtro==='v5'?v5 : filtro==='v10'?v10 : filtro==='vrest'?vrest : all;
+    document.getElementById('lista-prazos').innerHTML=lista.length?lista.map(p=>`
+      <div class="prazo-item ${pCls(p.dias)}">${pIcon(p.dias)}
+        <div style="flex:1;"><div class="pname">${p.nome}</div><div class="psub">${p.proc.cliente} · ${p.proc.protocolo||'—'} · Vence ${fmtDate(p.venc)}</div></div>
+        <span class="pdays ${dCls(p.dias)}">${daysLabel(p.dias)}</span>
+        <button class="btn" onclick="abrirDetalhe('${p.proc.id}')">Abrir</button>
+      </div>`).join(''):'<div class="empty"><i class="ti ti-circle-check"></i>Nenhum prazo neste filtro</div>';
+    document.querySelectorAll('.metric-prazo').forEach(el=>el.style.border='1px solid var(--border)');
+    const sel=document.getElementById('metric-prazo-'+filtro);
+    if(sel) sel.style.border='2px solid var(--accent)';
+  }
   document.getElementById('metrics-prazos').innerHTML=`
-    <div class="metric"><div class="metric-label">Vencendo hoje/amanhã</div><div class="metric-value" style="color:${v2>0?'var(--danger)':'inherit'}">${v2}</div></div>
-    <div class="metric"><div class="metric-label">Até 5 dias úteis</div><div class="metric-value" style="color:${v5>0?'var(--warning)':'inherit'}">${v5}</div></div>
-    <div class="metric"><div class="metric-label">Até 10 dias úteis</div><div class="metric-value">${v10}</div></div>
-    <div class="metric"><div class="metric-label">Total de prazos</div><div class="metric-value">${all.length}</div></div>`;
-  document.getElementById('lista-prazos').innerHTML=all.length?all.map(p=>`
-    <div class="prazo-item ${pCls(p.dias)}">${pIcon(p.dias)}
-      <div style="flex:1;"><div class="pname">${p.nome}</div><div class="psub">${p.proc.cliente} · ${p.proc.protocolo||'—'} · Vence ${fmtDate(p.venc)}</div></div>
-      <span class="pdays ${dCls(p.dias)}">${daysLabel(p.dias)}</span>
-      <button class="btn" onclick="abrirDetalhe('${p.proc.id}')">Abrir</button>
-    </div>`).join(''):'<div class="empty"><i class="ti ti-circle-check"></i>Nenhum prazo ativo</div>';
+    <div class="metric metric-prazo" id="metric-prazo-v2" style="cursor:pointer;border:1px solid var(--border);" onclick="renderListaPrazos('v2')">
+      <div class="metric-label">Hoje / amanhã</div>
+      <div class="metric-value" style="color:${v2.length>0?'var(--danger)':'inherit'}">${v2.length}</div>
+    </div>
+    <div class="metric metric-prazo" id="metric-prazo-v5" style="cursor:pointer;border:1px solid var(--border);" onclick="renderListaPrazos('v5')">
+      <div class="metric-label">3 a 5 dias úteis</div>
+      <div class="metric-value" style="color:${v5.length>0?'var(--warning)':'inherit'}">${v5.length}</div>
+    </div>
+    <div class="metric metric-prazo" id="metric-prazo-v10" style="cursor:pointer;border:1px solid var(--border);" onclick="renderListaPrazos('v10')">
+      <div class="metric-label">6 a 10 dias úteis</div>
+      <div class="metric-value">${v10.length}</div>
+    </div>
+    <div class="metric metric-prazo" id="metric-prazo-todos" style="cursor:pointer;border:2px solid var(--accent);" onclick="renderListaPrazos('todos')">
+      <div class="metric-label">Total de prazos</div>
+      <div class="metric-value">${all.length}</div>
+    </div>`;
+  renderListaPrazos('todos');
 }
 
 // RENDER FINANCEIRO
@@ -965,12 +1072,24 @@ function renderFinanceiro() {
     <div class="metric"><div class="metric-label">Com saldo pendente</div><div class="metric-value">${processos.filter(p=>(p.honorarios||0)>(p.recebido||0)).length}</div></div>`;
   document.getElementById('tbody-fin').innerHTML=processos.map(p=>{
     const s=(p.honorarios||0)-(p.recebido||0);
+    const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    const fmtMes = d => { if(!d) return '—'; const dt=new Date(d+'T12:00:00'); return meses[dt.getMonth()]+'/'+dt.getFullYear(); };
     return`<tr>
       <td><div style="font-weight:500;">${p.cliente}</div><div class="proc-tipo">${p.tipo} · ${p.protocolo||'—'}</div></td>
       <td>R$ ${(p.honorarios||0).toLocaleString('pt-BR')}</td>
-      <td style="color:var(--success);">R$ ${(p.recebido||0).toLocaleString('pt-BR')}</td>
-      <td style="color:${s>0?'var(--warning)':'var(--text3)'};">${s>0?'R$ '+s.toLocaleString('pt-BR'):'—'}</td>
+      <td>
+        <div style="color:var(--success);">R$ ${(p.recebido||0).toLocaleString('pt-BR')}</div>
+        ${p.data_recebimento?'<div style="font-size:11px;color:var(--text3);">'+fmtMes(p.data_recebimento)+'</div>':''}
+      </td>
+      <td>
+        <div style="color:${s>0?'var(--warning)':'var(--text3)'};">${s>0?'R$ '+s.toLocaleString('pt-BR'):'—'}</div>
+        ${s>0?`<div style="display:flex;align-items:center;gap:4px;margin-top:2px;">
+          <span style="font-size:11px;color:var(--text3);">${p.previsao_recebimento?fmtMes(p.previsao_recebimento):'Sem previsão'}</span>
+          <button class="btn" style="font-size:10px;padding:1px 6px;" onclick="editarPrevisao('${p.id}','${p.previsao_recebimento||''}')">✏</button>
+        </div>`:''}
+      </td>
       <td><span class="badge ${s===0?'b-success':s===p.honorarios?'b-danger':'b-warn'}">${s===0?'Quitado':s===p.honorarios?'Pendente':'Parcial'}</span></td>
+      <td><button class="btn" onclick="abrirDetalhe('${p.id}')"><i class="ti ti-arrow-right" style="font-size:13px;"></i></button></td>
     </tr>`;}).join('');
 }
 
