@@ -518,6 +518,16 @@ async function addDocItem() {
   await load(); activeProc=processos.find(p=>p.id===activeProc.id); renderDetalhe();
 }
 
+async function deletarExigencia(id) {
+  if(!confirm('Excluir esta exig\u00eancia? Esta a\u00e7\u00e3o n\u00e3o pode ser desfeita.')) return;
+  const {error} = await sb.from('exigencias').delete().eq('id', id);
+  if(error){toast('Erro: '+error.message); return;}
+  toast('Exig\u00eancia exclu\u00edda.');
+  await load();
+  activeProc = processos.find(p=>p.id===activeProc.id);
+  renderExigencia();
+}
+
 async function deletarProcesso(id) {
   if(!confirm('Tem certeza que deseja excluir este processo? Esta ação não pode ser desfeita.')) return;
   const {error} = await sb.from('processos').delete().eq('id', id);
@@ -883,25 +893,46 @@ function renderExigencia() {
   // Exigências resolvidas (fechadas)
   const resolvidas=exigs.filter(e=>e.resolvida);
   if(resolvidas.length){
-    const openAttr = abertas.length===0 ? 'open' : '';
-    html+=`<details ${openAttr} style="margin-top:12px;border:1px solid var(--border);border-radius:var(--r);padding:10px 14px;">
-      <summary style="font-size:12px;font-weight:500;color:var(--text2);cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;">
-        <i class="ti ti-circle-check" style="color:var(--success);font-size:14px;"></i>
-        ${resolvidas.length} exigência${resolvidas.length>1?'s':''} resolvida${resolvidas.length>1?'s':''}
-      </summary>
-      <div style="margin-top:10px;">
-      ${resolvidas.map(e=>`<div style="padding:10px 0;border-bottom:1px solid var(--border);font-size:13px;display:flex;align-items:center;gap:10px;">
-        <i class="ti ti-check" style="color:var(--success);font-size:14px;flex-shrink:0;"></i>
-        <div>
-          <div style="font-weight:500;">${e.nota_ref||'Exigência'}</div>
-          <div style="font-size:11px;color:var(--text2);margin-top:2px;">
-            Reingresso em ${e.data_reingresso_realizado?fmtDate(e.data_reingresso_realizado):(e.reingresso?fmtDate(e.reingresso):'—')} 
-            ${e.novo_prazo_analise?' · Novo prazo de análise: '+fmtDate(e.novo_prazo_analise):''}
-          </div>
-        </div>
-      </div>`).join('')}
-      </div>
-    </details>`;
+    html += "<div style='margin-top:12px'>";
+    html += "<div style='font-size:11px;font-weight:500;color:var(--text2);margin-bottom:8px;display:flex;align-items:center;gap:6px'>";
+    html += "<i class='ti ti-circle-check' style='color:var(--success);font-size:13px'></i> ";
+    html += resolvidas.length + " exig\u00eancia" + (resolvidas.length>1?"s":"") + " resolvida" + (resolvidas.length>1?"s":"");
+    html += "</div>";
+    resolvidas.forEach(function(e, ri){
+      const itens=(p.exigencia_itens||[]).filter(function(i){return i.exigencia_id===e.id;});
+      const drReal=e.data_reingresso_realizado;
+      const drPrazo=e.data_reingresso||e.reingresso;
+      html += "<details style='border:1px solid var(--border);border-radius:var(--r);margin-bottom:8px;overflow:hidden'>";
+      html += "<summary style='padding:10px 14px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;background:var(--surface2)'>";
+      html += "<i class='ti ti-check' style='color:var(--success);font-size:14px;flex-shrink:0'></i>";
+      html += "<div style='flex:1'>";
+      html += "<div style='font-size:13px;font-weight:500'>" + (e.nota_ref||("Exig\u00eancia "+(ri+1))) + "</div>";
+      html += "<div style='font-size:11px;color:var(--text2);margin-top:1px'>Reingresso em " + (drReal?fmtDate(drReal):"\u2014") + (e.novo_prazo_analise?" &middot; Novo prazo: "+fmtDate(e.novo_prazo_analise):"") + "</div>";
+      html += "</div>";
+      html += "<button class='btn' style='flex-shrink:0;font-size:11px;padding:3px 8px;color:var(--danger);border-color:#f5c6c2' onclick='event.preventDefault();deletarExigencia(\"" + e.id + "\")'><i class='ti ti-trash' style='font-size:12px'></i></button>";
+      html += "</summary>";
+      html += "<div style='padding:12px 14px'>";
+      html += "<div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px'>";
+      html += "<div><div style='font-size:10px;color:var(--text2);margin-bottom:3px'>RECEBIDA EM</div><div style='font-size:13px'>" + (e.recebimento?fmtDate(e.recebimento):"\u2014") + "</div></div>";
+      html += "<div><div style='font-size:10px;color:var(--text2);margin-bottom:3px'>PRAZO REINGRESSO</div><div style='font-size:13px'>" + (drPrazo?fmtDate(drPrazo):"\u2014") + "</div></div>";
+      html += "<div><div style='font-size:10px;color:var(--text2);margin-bottom:3px'>REINGRESSADO EM</div><div style='font-size:13px'>" + (drReal?fmtDate(drReal):"\u2014") + "</div></div>";
+      html += "</div>";
+      if(e.obs) html += "<div style='font-size:12px;color:var(--text2);background:var(--surface2);padding:8px 10px;border-radius:var(--r);margin-bottom:10px'>" + e.obs + "</div>";
+      if(itens.length){
+        html += "<div style='font-size:11px;font-weight:500;color:var(--text2);margin-bottom:6px'>PEND\u00caNCIAS RESOLVIDAS</div>";
+        itens.forEach(function(it){
+          html += "<div style='display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)'>";
+          html += "<i class='ti ti-check' style='color:var(--success);font-size:13px;margin-top:1px;flex-shrink:0'></i>";
+          html += "<div style='flex:1'><div style='font-size:13px;text-decoration:line-through;color:var(--text3)'>" + it.texto + "</div>";
+          if(it.responsavel) html += "<span class='rtag " + (it.resp_class||"") + "' style='margin-top:3px;display:inline-block'>" + it.responsavel + "</span>";
+          html += "</div></div>";
+        });
+      } else {
+        html += "<div style='font-size:13px;color:var(--text3)'>Nenhuma pend\u00eancia registrada.</div>";
+      }
+      html += "</div></details>";
+    });
+    html += "</div>";
   }
 
   el.innerHTML=html;
