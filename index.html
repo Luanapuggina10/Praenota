@@ -1265,7 +1265,7 @@ function renderFinanceiro() {
 
   // ── MENSAL: build month range ──────────────────────────────────────────────
   var mesesRange = [];
-  for(var m = mesesAtras-1; m >= 0; m--) {
+  for(var m = 0; m < mesesAtras; m++) {
     var d = new Date(hoje.getFullYear(), hoje.getMonth()-m, 1);
     mesesRange.push({
       key: String(d.getFullYear())+'-'+String(d.getMonth()+1).padStart(2,'0'),
@@ -1325,7 +1325,21 @@ function renderFinanceiro() {
 
   mensalHTML += '</tbody></table>';
   var elMensal = document.getElementById('fin-mensal');
-  if(elMensal) elMensal.innerHTML = mensalHTML;
+  if(elMensal) {
+    elMensal.innerHTML = mensalHTML;
+    // Click handler for expandable rows
+    elMensal.onclick = function(e) {
+      var row = e.target.closest('.mes-row');
+      if(!row) return;
+      var key = row.dataset.key;
+      var detail = document.getElementById('detail-'+key);
+      var chev = document.getElementById('chev-'+key);
+      if(!detail) return;
+      var isOpen = detail.style.display !== 'none';
+      detail.style.display = isOpen ? 'none' : 'table-row';
+      if(chev) chev.style.transform = isOpen ? '' : 'rotate(90deg)';
+    };
+  }
 
   // ── FUTURO: group by mes de vencimento ────────────────────────────────────
   var futurasPorMes = {};
