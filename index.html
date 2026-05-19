@@ -261,6 +261,7 @@
         <button class="btn" onclick="navTo('processos')"><i class="ti ti-arrow-left"></i> Voltar</button>
         <span id="detalhe-titulo" style="font-size:15px;font-weight:500;color:var(--brand);"></span>
         <button class="btn" onclick="abrirModalEdit()" style="margin-left:auto;"><i class="ti ti-edit"></i> Editar</button>
+        <button class="btn" onclick="concluirRegistro()" style="color:var(--success);border-color:#9ad0b8;" id="btn-concluir"><i class="ti ti-circle-check"></i> Concluir registro</button>
         <button class="btn" id="btn-deletar" style="color:var(--danger);border-color:#f5c6c2;" onclick="deletarProcesso(activeProc?.id)"><i class="ti ti-trash"></i> Excluir</button>
       </div>
       <div id="detalhe-content"></div>
@@ -549,6 +550,22 @@ async function addDocItem() {
   await load(); activeProc=processos.find(p=>p.id===activeProc.id); renderDetalhe();
 }
 
+async function concluirRegistro() {
+  if(!activeProc) return;
+  if(activeProc.etapa === 'concluido') {
+    if(!confirm('Reabrir este processo?')) return;
+    await sb.from('processos').update({etapa:'reingresso'}).eq('id', activeProc.id);
+    toast('Processo reaberto.');
+  } else {
+    if(!confirm('Marcar este processo como concluído? O registro foi realizado.')) return;
+    await sb.from('processos').update({etapa:'concluido'}).eq('id', activeProc.id);
+    toast('Processo concluído!');
+  }
+  await load();
+  activeProc = processos.find(p=>p.id===activeProc.id);
+  renderDetalhe();
+}
+
 async function deletarExigencia(id) {
   if(!confirm('Excluir esta exig\u00eancia? Esta a\u00e7\u00e3o n\u00e3o pode ser desfeita.')) return;
   const {error} = await sb.from('exigencias').delete().eq('id', id);
@@ -556,8 +573,20 @@ async function deletarExigencia(id) {
   toast('Exig\u00eancia exclu\u00edda.');
   await load();
   activeProc = processos.find(p=>p.id===activeProc.id);
-  renderObservacao();
   renderExigencia();
+  // Update concluir button based on etapa
+  const btnC = document.getElementById('btn-concluir');
+  if(btnC) {
+    if(activeProc.etapa==='concluido') {
+      btnC.innerHTML='<i class="ti ti-refresh"></i> Reabrir processo';
+      btnC.style.color='var(--text2)';
+      btnC.style.borderColor='var(--border-med)';
+    } else {
+      btnC.innerHTML='<i class="ti ti-circle-check"></i> Concluir registro';
+      btnC.style.color='var(--success)';
+      btnC.style.borderColor='#9ad0b8';
+    }
+  }
 }
 
 async function deletarProcesso(id) {
@@ -848,7 +877,13 @@ function renderDetalhe() {
           </div>`).join('')}</div>
       </div>
     </div>
-    <div class="card" id="card-observacao" style="margin-bottom:0;"></div>
+    <div class="card" style="margin-bottom:12px;">
+      <div class="row-between" style="margin-bottom:8px;">
+        <div class="card-title" style="margin-bottom:0;">Observações</div>
+        <button class="btn" onclick="salvarObservacao()" style="font-size:11px;">Salvar</button>
+      </div>
+      <textarea id="obs-textarea" style="width:100%;min-height:80px;padding:9px 11px;border:1px solid var(--border-med);border-radius:var(--r);font-size:13px;font-family:inherit;color:var(--text);background:white;resize:vertical;" placeholder="Anotações sobre o andamento do processo...">${p.observacao||''}</textarea>
+    </div>
     <div class="card" id="card-exigencia"></div>
     <div class="card">
       <div class="row-between" style="margin-bottom:8px;">
