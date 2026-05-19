@@ -274,9 +274,33 @@
     </div>
 
     <div class="page" id="page-financeiro">
-      <div class="page-title">Financeiro</div>
+      <div class="row-between" style="margin-bottom:1.5rem;">
+        <div class="page-title" style="margin-bottom:0;">Financeiro</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <select id="fin-periodo" class="inline-input" style="font-size:13px;" onchange="renderFinanceiro()">
+            <option value="3">Últimos 3 meses</option>
+            <option value="6" selected>Últimos 6 meses</option>
+            <option value="12">Últimos 12 meses</option>
+            <option value="24">Últimos 24 meses</option>
+          </select>
+        </div>
+      </div>
       <div class="metrics" id="metrics-fin"></div>
+
+      <div class="card" style="margin-bottom:12px;">
+        <div class="card-title">Realizado mês a mês</div>
+        <div id="fin-mensal"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:12px;">
+        <div class="card-title">A receber — parcelas futuras</div>
+        <div id="fin-futuro"></div>
+      </div>
+
       <div class="card" style="padding:0;">
+        <div style="padding:1rem 1.25rem 0.75rem;display:flex;align-items:center;justify-content:space-between;">
+          <div class="card-title" style="margin-bottom:0;">Parcelas por processo</div>
+        </div>
         <table class="tbl">
           <thead><tr><th>Processo</th><th>Contratado</th><th>Recebido</th><th>A receber</th><th>Status</th><th style="text-align:right;">Ações</th></tr></thead>
           <tbody id="tbody-fin"></tbody>
@@ -1197,40 +1221,169 @@ function renderPrazos() {
 
 // RENDER FINANCEIRO
 function renderFinanceiro() {
-  const todasParcelas = processos.flatMap(function(p){ return (p.parcelas||[]).map(function(pa){ return Object.assign({},pa,{proc:p}); }); });
-  const pagas = todasParcelas.filter(function(pa){ return !!pa.pagamento; });
-  const emAberto = todasParcelas.filter(function(pa){ return !pa.pagamento; });
   const hoje = new Date(); hoje.setHours(0,0,0,0);
-  const vencidas = emAberto.filter(function(pa){ return pa.vencimento && new Date(pa.vencimento+'T12:00:00') < hoje; });
-  const totalContratado = processos.reduce(function(a,p){ return a+(p.honorarios||0); }, 0);
-  const totalPago = pagas.reduce(function(a,pa){ return a+pa.valor; }, 0);
-  const totalAberto = emAberto.reduce(function(a,pa){ return a+pa.valor; }, 0);
-
-  document.getElementById('metrics-fin').innerHTML =
-    '<div class="metric"><div class="metric-label">Total contratado</div><div class="metric-value">R$'+Math.round(totalContratado).toLocaleString('pt-BR')+'</div></div>'
-    +'<div class="metric"><div class="metric-label">Recebido</div><div class="metric-value" style="color:var(--success)">R$'+Math.round(totalPago).toLocaleString('pt-BR')+'</div></div>'
-    +'<div class="metric"><div class="metric-label">A receber</div><div class="metric-value" style="color:'+(totalAberto>0?'var(--warning)':'inherit')+'">R$'+Math.round(totalAberto).toLocaleString('pt-BR')+'</div></div>'
-    +'<div class="metric"><div class="metric-label">Parcelas vencidas</div><div class="metric-value" style="color:'+(vencidas.length>0?'var(--danger)':'inherit')+'">'+vencidas.length+'</div></div>';
-
+  const periodoEl = document.getElementById('fin-periodo');
+  const mesesAtras = periodoEl ? parseInt(periodoEl.value) : 6;
   const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-  function fmtMes(d) {
+
+  function fmtMesAno(d) {
     if(!d) return null;
     var dt = new Date(d+'T12:00:00');
     return meses[dt.getMonth()]+'/'+String(dt.getFullYear()).slice(2);
   }
+  function mesKey(d) {
+    if(!d) return null;
+    var dt = new Date(d+'T12:00:00');
+    return String(dt.getFullYear())+'-'+String(dt.getMonth()+1).padStart(2,'0');
+  }
+  function addMonths(date, n) {
+    var d = new Date(date);
+    d.setMonth(d.getMonth()+n);
+    return d;
+  }
 
+  // All parcelas
+  var todasParcelas = processos.flatMap(function(p){
+    return (p.parcelas||[]).map(function(pa){ return Object.assign({},pa,{proc:p}); });
+  });
+
+  var pagas = todasParcelas.filter(function(pa){ return !!pa.pagamento; });
+  var emAberto = todasParcelas.filter(function(pa){ return !pa.pagamento; });
+  var vencidas = emAberto.filter(function(pa){ return pa.vencimento && new Date(pa.vencimento+'T12:00:00') < hoje; });
+  var futuras = emAberto.filter(function(pa){ return !pa.vencimento || new Date(pa.vencimento+'T12:00:00') >= hoje; });
+
+  var totalPago = pagas.reduce(function(a,pa){ return a+pa.valor; },0);
+  var totalAberto = emAberto.reduce(function(a,pa){ return a+pa.valor; },0);
+  var totalVencido = vencidas.reduce(function(a,pa){ return a+pa.valor; },0);
+
+  // Metrics
+  document.getElementById('metrics-fin').innerHTML =
+    '<div class="metric"><div class="metric-label">Recebido (total)</div><div class="metric-value" style="color:var(--success)">R$'+Math.round(totalPago).toLocaleString('pt-BR')+'</div></div>'
+    +'<div class="metric"><div class="metric-label">A receber (futuro)</div><div class="metric-value" style="color:var(--warning)">R$'+Math.round(futuras.reduce(function(a,pa){return a+pa.valor;},0)).toLocaleString('pt-BR')+'</div></div>'
+    +'<div class="metric"><div class="metric-label">Vencido sem pagamento</div><div class="metric-value" style="color:'+(totalVencido>0?'var(--danger)':'inherit')+'">R$'+Math.round(totalVencido).toLocaleString('pt-BR')+'</div></div>'
+    +'<div class="metric"><div class="metric-label">Parcelas vencidas</div><div class="metric-value" style="color:'+(vencidas.length>0?'var(--danger)':'inherit')+'">'+vencidas.length+'</div></div>';
+
+  // ── MENSAL: build month range ──────────────────────────────────────────────
+  var mesesRange = [];
+  for(var m = mesesAtras-1; m >= 0; m--) {
+    var d = new Date(hoje.getFullYear(), hoje.getMonth()-m, 1);
+    mesesRange.push({
+      key: String(d.getFullYear())+'-'+String(d.getMonth()+1).padStart(2,'0'),
+      label: meses[d.getMonth()]+'/'+String(d.getFullYear()).slice(2)
+    });
+  }
+
+  // Group pagamentos by mes of pagamento
+  var pagoPorMes = {};
+  pagas.forEach(function(pa) {
+    var k = mesKey(pa.pagamento);
+    if(!k) return;
+    if(!pagoPorMes[k]) pagoPorMes[k] = {valor:0, itens:[]};
+    pagoPorMes[k].valor += pa.valor;
+    pagoPorMes[k].itens.push(pa);
+  });
+
+  // Group vencimentos by mes of vencimento (previsto)
+  var previstoPortMes = {};
+  todasParcelas.forEach(function(pa) {
+    var k = mesKey(pa.vencimento);
+    if(!k) return;
+    if(!previstoPortMes[k]) previstoPortMes[k] = {valor:0};
+    previstoPortMes[k].valor += pa.valor;
+  });
+
+  var maxVal = 0;
+  mesesRange.forEach(function(m) {
+    var r = (pagoPorMes[m.key]||{valor:0}).valor;
+    var p = (previstoPortMes[m.key]||{valor:0}).valor;
+    if(r > maxVal) maxVal = r;
+    if(p > maxVal) maxVal = p;
+  });
+
+  var mensalHTML = '<table style="width:100%;border-collapse:collapse;font-size:13px;">'
+    +'<thead><tr>'
+    +'<th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:500;color:var(--text2);border-bottom:1px solid var(--border);">M\u00eas</th>'
+    +'<th style="text-align:right;padding:8px 12px;font-size:11px;font-weight:500;color:var(--text2);border-bottom:1px solid var(--border);">Previsto (venc.)</th>'
+    +'<th style="text-align:right;padding:8px 12px;font-size:11px;font-weight:500;color:var(--text2);border-bottom:1px solid var(--border);">Realizado (pago)</th>'
+    +'<th style="padding:8px 12px;border-bottom:1px solid var(--border);min-width:120px;"></th>'
+    +'</tr></thead><tbody>';
+
+  mesesRange.forEach(function(m) {
+    var pago = (pagoPorMes[m.key]||{valor:0}).valor;
+    var previsto = (previstoPortMes[m.key]||{valor:0}).valor;
+    var barW = maxVal > 0 ? Math.round((pago/maxVal)*100) : 0;
+    var isCurrentMonth = m.key === String(hoje.getFullYear())+'-'+String(hoje.getMonth()+1).padStart(2,'0');
+    mensalHTML += '<tr style="'+(isCurrentMonth?'background:var(--surface2)':'')+'">'
+      +'<td style="padding:9px 12px;font-weight:'+(isCurrentMonth?'500':'400')+'">'+m.label+(isCurrentMonth?' <span style="font-size:10px;color:var(--accent);font-weight:500">MÊS ATUAL</span>':'')+'</td>'
+      +'<td style="padding:9px 12px;text-align:right;color:var(--text2)">'+( previsto>0 ? 'R$ '+previsto.toLocaleString('pt-BR') : '\u2014' )+'</td>'
+      +'<td style="padding:9px 12px;text-align:right;color:'+(pago>0?'var(--success)':'var(--text3)')+'">'+( pago>0 ? 'R$ '+pago.toLocaleString('pt-BR') : '\u2014' )+'</td>'
+      +'<td style="padding:9px 12px">'
+      +(pago>0 ? '<div style="height:6px;border-radius:3px;background:var(--border);overflow:hidden"><div style="height:100%;width:'+barW+'%;background:var(--success);border-radius:3px"></div></div>' : '')
+      +'</td>'
+      +'</tr>';
+  });
+
+  mensalHTML += '</tbody></table>';
+  var elMensal = document.getElementById('fin-mensal');
+  if(elMensal) elMensal.innerHTML = mensalHTML;
+
+  // ── FUTURO: group by mes de vencimento ────────────────────────────────────
+  var futurasPorMes = {};
+  futuras.forEach(function(pa) {
+    var k = mesKey(pa.vencimento) || 'sem-data';
+    var label = fmtMesAno(pa.vencimento) || 'Sem data';
+    if(!futurasPorMes[k]) futurasPorMes[k] = {label:label, valor:0, itens:[]};
+    futurasPorMes[k].valor += pa.valor;
+    futurasPorMes[k].itens.push(pa);
+  });
+
+  var futurasKeys = Object.keys(futurasPorMes).sort();
+  var futuroHTML = '';
+  if(!futurasKeys.length) {
+    futuroHTML = '<div class="empty" style="padding:1rem 0"><i class="ti ti-circle-check"></i>Nenhuma parcela em aberto</div>';
+  } else {
+    futuroHTML = '<table style="width:100%;border-collapse:collapse;font-size:13px;">'
+      +'<thead><tr>'
+      +'<th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:500;color:var(--text2);border-bottom:1px solid var(--border);">M\u00eas</th>'
+      +'<th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:500;color:var(--text2);border-bottom:1px solid var(--border);">Parcelas</th>'
+      +'<th style="text-align:right;padding:8px 12px;font-size:11px;font-weight:500;color:var(--text2);border-bottom:1px solid var(--border);">Total</th>'
+      +'</tr></thead><tbody>';
+
+    futurasKeys.forEach(function(k) {
+      var grupo = futurasPorMes[k];
+      futuroHTML += '<tr style="border-bottom:1px solid var(--border)">'
+        +'<td style="padding:9px 12px;font-weight:500;vertical-align:top">'+grupo.label+'</td>'
+        +'<td style="padding:9px 12px">'
+        +grupo.itens.map(function(pa){
+          return '<div style="font-size:12px;margin-bottom:3px">'
+            +'<span style="color:var(--text2)">'+pa.proc.cliente+'</span>'
+            +' \u00b7 '+(pa.descricao||'Parcela')
+            +' \u00b7 <span style="color:var(--warning)">R$ '+pa.valor.toLocaleString('pt-BR')+'</span>'
+            +'</div>';
+        }).join('')
+        +'</td>'
+        +'<td style="padding:9px 12px;text-align:right;color:var(--warning);font-weight:500;vertical-align:top">R$ '+grupo.valor.toLocaleString('pt-BR')+'</td>'
+        +'</tr>';
+    });
+
+    futuroHTML += '</tbody></table>';
+  }
+  var elFuturo = document.getElementById('fin-futuro');
+  if(elFuturo) elFuturo.innerHTML = futuroHTML;
+
+  // ── PARCELAS POR PROCESSO ─────────────────────────────────────────────────
   var rows = '';
   processos.forEach(function(p) {
     var parcelas = (p.parcelas||[]).slice().sort(function(a,b){
       if(!a.vencimento) return 1; if(!b.vencimento) return -1;
       return a.vencimento.localeCompare(b.vencimento);
     });
-    var totalPagoP = parcelas.filter(function(pa){ return !!pa.pagamento; }).reduce(function(a,pa){ return a+pa.valor; }, 0);
-    var totalAbertoP = parcelas.filter(function(pa){ return !pa.pagamento; }).reduce(function(a,pa){ return a+pa.valor; }, 0);
-    var statusCls = totalAbertoP===0&&totalPagoP>0 ? 'b-success' : totalPagoP===0 ? 'b-danger' : 'b-warn';
+    var totalPagoP = parcelas.filter(function(pa){ return !!pa.pagamento; }).reduce(function(a,pa){ return a+pa.valor; },0);
+    var totalAbertoP = parcelas.filter(function(pa){ return !pa.pagamento; }).reduce(function(a,pa){ return a+pa.valor; },0);
+    var statusCls = totalAbertoP===0&&totalPagoP>0 ? 'b-success' : totalPagoP===0&&(p.honorarios||0)>0 ? 'b-danger' : totalPagoP>0 ? 'b-warn' : 'b-gray';
     var statusTxt = totalAbertoP===0&&totalPagoP>0 ? 'Quitado' : totalPagoP===0 ? 'Pendente' : 'Parcial';
     rows += '<tr>'
-      +'<td style="padding:10px 12px"><div style="font-weight:500">'+p.cliente+'</div><div class="proc-tipo">'+p.tipo+' · '+(p.protocolo||'—')+'</div></td>'
+      +'<td style="padding:10px 12px"><div style="font-weight:500">'+p.cliente+'</div><div class="proc-tipo">'+p.tipo+' \u00b7 '+(p.protocolo||'\u2014')+'</div></td>'
       +'<td style="padding:10px 12px">R$ '+(p.honorarios||0).toLocaleString('pt-BR')+'</td>'
       +'<td style="padding:10px 12px;color:var(--success)">R$ '+totalPagoP.toLocaleString('pt-BR')+'</td>'
       +'<td style="padding:10px 12px;color:'+(totalAbertoP>0?'var(--warning)':'var(--text3)')+'">R$ '+totalAbertoP.toLocaleString('pt-BR')+'</td>'
@@ -1239,18 +1392,17 @@ function renderFinanceiro() {
       +'<button class="btn" style="font-size:11px" data-action="nova-parcela" data-id="'+p.id+'"><i class="ti ti-plus"></i> Parcela</button> '
       +'<button class="btn" style="font-size:11px" data-action="abrir-detalhe" data-id="'+p.id+'"><i class="ti ti-arrow-right" style="font-size:12px"></i></button>'
       +'</td></tr>';
-
     parcelas.forEach(function(pa) {
-      var venc = fmtMes(pa.vencimento);
-      var pago = fmtMes(pa.pagamento);
+      var venc = fmtMesAno(pa.vencimento);
+      var pago = fmtMesAno(pa.pagamento);
       var vencDate = pa.vencimento ? new Date(pa.vencimento+'T12:00:00') : null;
       var vencida = !pa.pagamento && vencDate && vencDate < hoje;
       var cor = pa.pagamento ? 'var(--success)' : vencida ? 'var(--danger)' : 'var(--warning)';
       rows += '<tr style="background:var(--surface2)">'
         +'<td style="padding:6px 12px 6px 28px;font-size:12px;color:var(--text2)">'+(pa.descricao||'Parcela')+'</td>'
         +'<td style="padding:6px 12px;font-size:12px">R$ '+pa.valor.toLocaleString('pt-BR')+'</td>'
-        +'<td style="padding:6px 12px;font-size:12px;color:'+(vencida?'var(--danger)':'var(--text2)')+'">Venc: '+(venc||'—')+'</td>'
-        +'<td style="padding:6px 12px;font-size:12px;color:'+cor+'">'+(pago ? '✓ '+pago : vencida ? 'Vencida' : 'Aguardando')+'</td>'
+        +'<td style="padding:6px 12px;font-size:12px;color:'+(vencida?'var(--danger)':'var(--text2)')+'">Venc: '+(venc||'\u2014')+'</td>'
+        +'<td style="padding:6px 12px;font-size:12px;color:'+cor+'">'+(pago?'\u2713 '+pago:vencida?'Vencida':'Aguardando')+'</td>'
         +'<td></td>'
         +'<td style="padding:6px 12px;text-align:right">'
         +'<button class="btn" style="font-size:11px;padding:3px 7px;margin-right:4px" data-action="editar-parcela" data-id="'+pa.id+'"><i class="ti ti-edit" style="font-size:11px"></i></button>'
@@ -1261,18 +1413,17 @@ function renderFinanceiro() {
 
   document.getElementById('tbody-fin').innerHTML = rows || '<tr><td colspan="6"><div class="empty"><i class="ti ti-coin-off"></i>Nenhum processo</div></td></tr>';
 
-  // Event delegation for fin table buttons
+  // Event delegation
   var tbody = document.getElementById('tbody-fin');
   if(tbody) {
     tbody.onclick = function(e) {
       var btn = e.target.closest('[data-action]');
       if(!btn) return;
-      var action = btn.dataset.action;
-      var id = btn.dataset.id;
-      if(action === 'nova-parcela') novaParcela(id);
-      else if(action === 'abrir-detalhe') abrirDetalhe(id);
-      else if(action === 'editar-parcela') editarParcela(id);
-      else if(action === 'deletar-parcela') deletarParcela(id);
+      var action = btn.dataset.action, id = btn.dataset.id;
+      if(action==='nova-parcela') novaParcela(id);
+      else if(action==='abrir-detalhe') abrirDetalhe(id);
+      else if(action==='editar-parcela') editarParcela(id);
+      else if(action==='deletar-parcela') deletarParcela(id);
     };
   }
 }
