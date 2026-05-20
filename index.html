@@ -410,18 +410,18 @@
 <!-- MODAL REINGRESSO -->
 <div class="modal-bg" id="modal-reingresso">
   <div class="modal" style="width:420px;">
-    <div class="modal-title">Registrar reingresso</div>
+    <div class="modal-title" id="modal-reingresso-title">Registrar reingresso</div>
     <div class="field" style="margin-bottom:1rem;">
       <label>Data do reingresso</label>
       <input type="date" id="reingresso-data">
     </div>
     <div class="alert alert-warn" style="margin-bottom:1rem;">
       <i class="ti ti-clock" style="font-size:16px;flex-shrink:0;"></i>
-      <div>Novo prazo de 10 dias úteis será contado a partir da data informada.</div>
+      <div>Novo prazo de 10 dias úteis será contado a partir da data informada (dia seguinte ao reingresso).</div>
     </div>
     <div class="form-actions">
       <button class="btn" onclick="fecharModal('modal-reingresso')">Cancelar</button>
-      <button class="btn btn-primary" onclick="confirmarReingresso()">Confirmar reingresso</button>
+      <button class="btn btn-primary" id="btn-confirmar-reingresso" onclick="confirmarReingresso()">Confirmar reingresso</button>
     </div>
   </div>
 </div>
@@ -778,23 +778,46 @@ function abrirModalReingresso(exigId) {
   document.getElementById('modal-reingresso').classList.add('open');
 }
 
+let _editandoReingresso = false;
+let _editReingId = null;
+
+function editarReingresso(exigId, dataAtual, prazoAtual) {
+  _editandoReingresso = true;
+  _editReingId = exigId;
+  _reingressoExigId = exigId;
+  var title = document.getElementById('modal-reingresso-title');
+  var btn = document.getElementById('btn-confirmar-reingresso');
+  if(title) title.textContent = 'Editar reingresso';
+  if(btn) btn.textContent = 'Salvar alteração';
+  document.getElementById('reingresso-data').value = dataAtual || '';
+  document.getElementById('modal-reingresso').classList.add('open');
+}
+
 async function confirmarReingresso() {
   const data = document.getElementById('reingresso-data').value;
   if(!data){toast('Informe a data do reingresso.');return;}
+  // Count starts from day AFTER reingresso date
   const novoVenc = addDiasUteis(data, 10);
   const {error} = await sb.from('exigencias').update({
     resolvida: true,
     data_reingresso_realizado: data,
     novo_prazo_analise: novoVenc.toISOString().split('T')[0]
   }).eq('id', _reingressoExigId);
-  if(error){toast('Erro ao registrar reingresso: '+error.message); console.error(error); return;}
-  await sb.from('processos').update({etapa:'reingresso'}).eq('id', activeProc.id);
-  toast('Reingresso registrado! Novo prazo: '+fmtDate(novoVenc));
+  if(error){toast('Erro: '+error.message); console.error(error); return;}
+  if(!_editandoReingresso) {
+    await sb.from('processos').update({etapa:'reingresso'}).eq('id', activeProc.id);
+  }
+  toast((_editandoReingresso?'Reingresso atualizado! ':'Reingresso registrado! ')+'Novo prazo: '+fmtDate(novoVenc));
   fecharModal('modal-reingresso');
-  // force fresh reload
+  // Reset modal title
+  _editandoReingresso = false; _editReingId = null;
+  var title = document.getElementById('modal-reingresso-title');
+  var btn = document.getElementById('btn-confirmar-reingresso');
+  if(title) title.textContent = 'Registrar reingresso';
+  if(btn) btn.textContent = 'Confirmar reingresso';
   processos = [];
   await load();
-  activeProc = processos.find(p=>p.id===activeProc.id);
+  activeProc = processos.find(function(p){ return p.id===activeProc.id; });
   renderDetalhe();
 }
 
@@ -910,6 +933,7 @@ function dCls(n, tipo){
 }
 function pIcon(n, tipo){
   if(tipo==='prenotacao') return '<i class="ti ti-info-circle" style="font-size:16px;color:var(--text3);"></i>';
+  if(n===0) return '<i class="ti ti-alert-circle" style="font-size:16px;color:var(--danger);"></i>';
   if(tipo==='analise_ri') {
     const c = n<=2?'var(--danger)':n<=5?'var(--warning)':'var(--info)';
     return '<i class="ti ti-building-bank" style="font-size:16px;color:'+c+';"></i>';
@@ -921,47 +945,74 @@ function pIcon(n, tipo){
 // Tipos de prazo: 'prenotacao' | 'diligencia' | 'analise_ri'
 function getPrazos(p) {
   const prs = [];
+  const exigs = p.exigencias || [];
+  const abertas = exigs.filter(function(e){ return !e.resolvida; });
+  const resolvidas = exigs.filter(function(e){ return e.resolvida; });
 
-  // Prenotação — informativo apenas
+  // ── Prenotação — SEMPRE informativo, nunca alerta ──
   if(p.apresentacao) {
     const v = addDiasUteis(p.apresentacao, 20);
     prs.push({nome:'Prenotação (20 dias úteis)', venc:v, dias:diasUteis(v), tipo:'prenotacao'});
   }
 
-  // Análise RI inicial (se não há exigências)
-  const exigs = p.exigencias || [];
-  const abertas = exigs.filter(function(e){ return !e.resolvida; });
-  const resolvidas = exigs.filter(function(e){ return e.resolvida; });
-
-  if(p.apresentacao && abertas.length === 0 && resolvidas.length === 0) {
+  // ── Análise RI inicial — apenas se NÃO há nenhuma exigência ainda ──
+  if(p.apresentacao && exigs.length === 0) {
     const v = addDiasUteis(p.apresentacao, 10);
     const d = diasUteis(v);
-    if(d > 0) prs.push({nome:'Análise no RI (10 dias úteis)', venc:v, dias:d, tipo:'analise_ri'});
+    // Show even if vencido (d=0) so user knows
+    prs.push({nome:'Análise no RI (10 dias úteis)', venc:v, dias:d, tipo:'analise_ri'});
   }
 
-  // Diligência (prazo para cumprir exigência aberta)
+  // ── Diligência — prazo para cumprir NE aberta (sempre aparece, mesmo vencido) ──
   abertas.forEach(function(e) {
     if(e.prazo_diligencia) {
       const d = diasUteis(e.prazo_diligencia);
-      prs.push({nome:'Cumprir diligência — '+(e.nota_ref||'NE'), venc:new Date(e.prazo_diligencia), dias:d, tipo:'diligencia'});
+      prs.push({
+        nome:'Cumprir diligência — '+(e.nota_ref||'NE'),
+        venc:new Date(e.prazo_diligencia+'T12:00:00'),
+        dias:d,
+        tipo:'diligencia',
+        exigId: e.id
+      });
     }
   });
 
-  // Análise RI pós-reingresso
+  // ── Análise RI pós-reingresso — 10 dias úteis após reingresso (sempre aparece) ──
   resolvidas.forEach(function(e) {
     if(e.novo_prazo_analise) {
       const d = diasUteis(e.novo_prazo_analise);
-      if(d > 0) prs.push({nome:'Análise no RI — pós '+(e.nota_ref||'NE'), venc:new Date(e.novo_prazo_analise), dias:d, tipo:'analise_ri'});
+      prs.push({
+        nome:'Análise no RI — pós '+(e.nota_ref||'NE'),
+        venc:new Date(e.novo_prazo_analise+'T12:00:00'),
+        dias:d,
+        tipo:'analise_ri'
+      });
     }
   });
 
   return prs;
 }
 
-// Prazo relevante para alertas (exclui prenotação e processos concluídos)
+// Prazos relevantes para ALERTAS:
+// - Exclui prenotação (sempre informativo)
+// - Exclui processos concluídos
+// - Inclui diligência e análise RI mesmo vencidos
 function getPrazosAlertas(p) {
   if(p.etapa === 'concluido') return [];
   return getPrazos(p).filter(function(pr){ return pr.tipo !== 'prenotacao'; });
+}
+
+// Prazo principal para exibir na coluna da lista de processos
+function getPrazoPrincipal(p) {
+  if(p.etapa === 'concluido') return null;
+  var alertas = getPrazosAlertas(p);
+  if(!alertas.length) return null;
+  // Priority: diligencia first, then analise_ri, sorted by urgency
+  var dilig = alertas.filter(function(pr){ return pr.tipo==='diligencia'; });
+  var analise = alertas.filter(function(pr){ return pr.tipo==='analise_ri'; });
+  // Most urgent first (lowest dias)
+  var all = dilig.concat(analise).sort(function(a,b){ return a.dias - b.dias; });
+  return all[0] || null;
 }
 
 function etapaInfo(p) {
@@ -980,7 +1031,7 @@ function etapaInfo(p) {
 // RENDER PAINEL
 function renderPainel() {
   const all=processos.flatMap(function(p){return getPrazosAlertas(p).map(function(pr){return Object.assign({},pr,{proc:p});});});
-  const urg=all.filter(p=>p.dias<=5).length, exigs=processos.filter(p=>p.exigencias?.[0]).length;
+  const urg=all.filter(function(p){return p.dias<=5;}).length, exigs=processos.filter(function(p){return (p.exigencias||[]).some(function(e){return !e.resolvida;});}).length;
   const aRec=processos.reduce((a,p)=>a+((p.honorarios||0)-(p.recebido||0)),0);
   document.getElementById('metrics-painel').innerHTML=`
     <div class="metric"><div class="metric-label">Processos ativos</div><div class="metric-value">${processos.length}</div></div>
@@ -995,7 +1046,7 @@ function renderPainel() {
       <button class="btn" onclick="abrirDetalhe('${p.proc.id}')">Abrir</button>
     </div>`).join(''):'<div class="empty"><i class="ti ti-circle-check"></i>Nenhum prazo urgente</div>';
   document.getElementById('recentes-painel').innerHTML=processos.slice(0,4).map(p=>{
-    const [bc,bl]=etapaInfo(p),pr=getPrazos(p)[0];
+    const [bc,bl]=etapaInfo(p),pr=getPrazoPrincipal(p);
     return`<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);">
       <div style="min-width:80px;font-size:11px;color:var(--text2);">${p.protocolo||'—'}<br><span style="color:var(--text3);">${p.interno||''}</span></div>
       <div style="flex:1;"><div style="font-weight:500;font-size:13px;">${p.cliente}</div><div class="proc-tipo">${p.tipo}</div></div>
@@ -1018,13 +1069,13 @@ function renderProcessos() {
     return matchNome && matchTipo;
   });
   document.getElementById('tbody-processos').innerHTML=filtered.length?filtered.map(p=>{
-    const [bc,bl]=etapaInfo(p),pr=getPrazos(p)[0];
+    const [bc,bl]=etapaInfo(p),pr=getPrazoPrincipal(p);
     return`<tr>
       <td class="mono">${p.protocolo||'—'}<br>${p.interno||''}</td>
       <td><div style="font-weight:500;">${p.cliente}</div><div class="proc-tipo">${p.imovel||''}</div></td>
       <td style="color:var(--text2);">${p.tipo}</td>
       <td><span class="badge ${bc}">${bl}</span></td>
-      <td><span class="${pr&&p.etapa!=='concluido'?dCls(pr.dias,pr.tipo):''}" style="font-size:12px;">${p.etapa==='concluido'?'<span class="badge b-success" style="font-size:10px;">Concluído</span>':pr?daysLabel(pr.dias):'—'}</span></td>
+      <td>${p.etapa==='concluido'?'':pr?`<span class="${dCls(pr.dias,pr.tipo)}" style="font-size:12px;">${daysLabel(pr.dias)}</span>`:'—'}</td>
       <td><button class="btn" onclick="abrirDetalhe('${p.id}')">Abrir</button></td>
     </tr>`;}).join(''):'<tr><td colspan="6"><div class="empty"><i class="ti ti-folder-off"></i>Nenhum processo encontrado</div></td></tr>';
 }
