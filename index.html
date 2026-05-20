@@ -81,6 +81,7 @@
     .pd-warning{color:var(--warning);}
     .pd-ok{color:var(--text2);}
     .pd-info{color:var(--info);}
+    .pd-vencido{color:var(--danger);font-weight:500;}
 
     /* TABLE */
     .tbl{width:100%;border-collapse:collapse;font-size:13px;}
@@ -271,8 +272,8 @@
     <div class="page" id="page-prazos">
       <div class="page-title">Prazos</div>
       <div class="metrics" id="metrics-prazos"></div>
-      <div id="prazos-prenotacao"></div>
       <div class="card"><div class="card-title">Prazos ativos</div><div id="lista-prazos"></div></div>
+      <div id="prazos-prenotacao"></div>
     </div>
 
     <div class="page" id="page-financeiro">
@@ -898,9 +899,11 @@ function fmtDate(d){return new Date(d).toLocaleDateString('pt-BR');}
 function daysLabel(n){return n===0?'Vencido':n+' dia'+(n!==1?'s':'')+' útei'+(n!==1?'s':'l');}
 function pCls(n, tipo){
   if(tipo==='prenotacao') return '';
+  if(n === 0) return 'pi-danger';
   return n<=2?'pi-danger':n<=5?'pi-warning':'';
 }
 function dCls(n, tipo){
+  if(n === 0) return 'pd-vencido';
   if(tipo==='prenotacao') return 'pd-ok';
   if(tipo==='analise_ri') return n<=2?'pd-danger':n<=5?'pd-warning':'pd-info';
   return n<=2?'pd-danger':n<=5?'pd-warning':'pd-ok';
@@ -955,8 +958,9 @@ function getPrazos(p) {
   return prs;
 }
 
-// Prazo relevante para alertas (exclui prenotação)
+// Prazo relevante para alertas (exclui prenotação e processos concluídos)
 function getPrazosAlertas(p) {
+  if(p.etapa === 'concluido') return [];
   return getPrazos(p).filter(function(pr){ return pr.tipo !== 'prenotacao'; });
 }
 
@@ -1020,7 +1024,7 @@ function renderProcessos() {
       <td><div style="font-weight:500;">${p.cliente}</div><div class="proc-tipo">${p.imovel||''}</div></td>
       <td style="color:var(--text2);">${p.tipo}</td>
       <td><span class="badge ${bc}">${bl}</span></td>
-      <td><span class="${pr?dCls(pr.dias):''}" style="font-size:12px;">${pr?daysLabel(pr.dias):'—'}</span></td>
+      <td><span class="${pr&&p.etapa!=='concluido'?dCls(pr.dias,pr.tipo):''}" style="font-size:12px;">${p.etapa==='concluido'?'<span class="badge b-success" style="font-size:10px;">Concluído</span>':pr?daysLabel(pr.dias):'—'}</span></td>
       <td><button class="btn" onclick="abrirDetalhe('${p.id}')">Abrir</button></td>
     </tr>`;}).join(''):'<tr><td colspan="6"><div class="empty"><i class="ti ti-folder-off"></i>Nenhum processo encontrado</div></td></tr>';
 }
@@ -1087,9 +1091,9 @@ function renderDetalhe() {
       <div class="card" style="margin-bottom:0;">
         <div class="card-title">Prazos</div>
         ${prazos.length?prazos.map(pr=>`
-          <div class="prazo-item ${pCls(pr.dias)}" style="margin-bottom:8px;">${pIcon(pr.dias)}
+          <div class="prazo-item ${pCls(pr.dias,pr.tipo)}" style="margin-bottom:8px;">${pIcon(pr.dias,pr.tipo)}
             <div style="flex:1;"><div class="pname" style="font-size:12px;">${pr.nome}</div><div class="psub">Vence ${fmtDate(pr.venc)}</div></div>
-            <span class="pdays ${dCls(pr.dias)}">${daysLabel(pr.dias)}</span>
+            <span class="pdays ${dCls(pr.dias,pr.tipo)}">${daysLabel(pr.dias)}</span>
           </div>`).join(''):'<div class="empty" style="padding:0.5rem 0;">Sem prazos ativos</div>'}
       </div>
       <div class="card" style="margin-bottom:0;">
@@ -1309,13 +1313,16 @@ function renderListaPrazos(filtro) {
   document.querySelectorAll('.metric-prazo').forEach(function(el){ el.style.outline='none'; });
   var sel = document.getElementById('metric-prazo-'+filtro);
   if(sel) sel.style.outline='2px solid var(--accent)';
+  // Re-attach event delegation after innerHTML rebuild
+  if(el) el.onclick = function(e){ var btn=e.target.closest('[data-action="abrir-proc"]'); if(btn) abrirDetalhe(btn.dataset.id); };
 }
 
 function renderPrazos() {
+  // Prenotacao shown for all, alertas only for non-concluido
   const allRaw = processos.flatMap(function(p){ return getPrazos(p).map(function(pr){ return Object.assign({},pr,{proc:p}); }); });
   allRaw.sort(function(a,b){ return a.dias-b.dias; });
-  _prazosInfo = allRaw.filter(function(p){ return p.tipo==='prenotacao'; });
-  const all = allRaw.filter(function(p){ return p.tipo!=='prenotacao'; });
+  _prazosInfo = allRaw.filter(function(p){ return p.tipo==='prenotacao' && p.proc.etapa!=='concluido'; });
+  const all = allRaw.filter(function(p){ return p.tipo!=='prenotacao' && p.proc.etapa!=='concluido'; });
   _prazosFiltrados = all;
   const v2=all.filter(function(p){return p.dias<=2;}).length;
   const v5=all.filter(function(p){return p.dias>2&&p.dias<=5;}).length;
@@ -1323,17 +1330,21 @@ function renderPrazos() {
   // Show prenotacao section below metrics if any
   var prenotacaoHTML = '';
   if(_prazosInfo.length) {
-    prenotacaoHTML = '<div class="card" style="margin-bottom:12px;padding:10px 14px;">'
-      +'<div style="font-size:11px;font-weight:500;color:var(--text2);margin-bottom:8px;">PRENOTAÇÃO — informativo</div>'
+    prenotacaoHTML = '<details style="margin-top:4px;">'
+      +'<summary style="font-size:12px;color:var(--text2);cursor:pointer;padding:10px 0;list-style:none;display:flex;align-items:center;gap:6px;">'
+      +'<i class="ti ti-info-circle" style="font-size:13px;color:var(--text3);"></i>'
+      +'Prenotação — informativo ('+_prazosInfo.length+' processo'+(_prazosInfo.length!==1?'s':'')+')'
+      +'</summary>'
+      +'<div class="card" style="margin-top:8px;padding:10px 14px;">'
       +_prazosInfo.map(function(p){
         return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);">'
-          +'<i class="ti ti-info-circle" style="font-size:14px;color:var(--text3);"></i>'
+          +'<i class="ti ti-info-circle" style="font-size:13px;color:var(--text3);"></i>'
           +'<div style="flex:1;font-size:12px;">'+p.proc.cliente+' · '+(p.proc.protocolo||'—')+'</div>'
           +'<span style="font-size:12px;color:var(--text2);">Vence '+fmtDate(p.venc)+'</span>'
           +'<span style="font-size:12px;color:'+(p.dias===0?'var(--danger)':'var(--text3)')+';">'+daysLabel(p.dias)+'</span>'
-          +'<button class="btn" data-action="abrir-proc" data-id="'+p.proc.id+'">Abrir</button>'
+          +'<button class="btn" style="font-size:11px;" data-action="abrir-proc" data-id="'+p.proc.id+'">Abrir</button>'
           +'</div>';
-      }).join('')+'</div>';
+      }).join('')+'</div></details>';
   }
   document.getElementById('metrics-prazos').innerHTML =
     '<div class="metric metric-prazo" id="metric-prazo-v2" style="cursor:pointer" data-filtro="v2">'
@@ -1350,13 +1361,15 @@ function renderPrazos() {
     +'<div class="metric-value">'+all.length+'</div></div>';
   renderListaPrazos('todos');
   var prenotDiv = document.getElementById('prazos-prenotacao');
-  if(prenotDiv) prenotDiv.innerHTML = prenotacaoHTML;
+  if(prenotDiv) {
+    prenotDiv.innerHTML = prenotacaoHTML;
+    prenotDiv.onclick = function(e){ var btn=e.target.closest('[data-action="abrir-proc"]'); if(btn) abrirDetalhe(btn.dataset.id); };
+  }
   // Event delegation for metrics
   var mp = document.getElementById('metrics-prazos');
   if(mp) mp.onclick = function(e){ var m=e.target.closest('[data-filtro]'); if(m) renderListaPrazos(m.dataset.filtro); };
   // Event delegation for prazos list
-  var lp = document.getElementById('lista-prazos');
-  if(lp) lp.onclick = function(e){ var btn=e.target.closest('[data-action="abrir-proc"]'); if(btn) abrirDetalhe(btn.dataset.id); };
+  // event delegation handled in renderListaPrazos
 }
 
 // RENDER FINANCEIRO
