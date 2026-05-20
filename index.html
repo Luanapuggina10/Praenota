@@ -80,6 +80,7 @@
     .pd-danger{color:var(--danger);}
     .pd-warning{color:var(--warning);}
     .pd-ok{color:var(--text2);}
+    .pd-info{color:var(--info);}
 
     /* TABLE */
     .tbl{width:100%;border-collapse:collapse;font-size:13px;}
@@ -270,7 +271,8 @@
     <div class="page" id="page-prazos">
       <div class="page-title">Prazos</div>
       <div class="metrics" id="metrics-prazos"></div>
-      <div class="card"><div class="card-title">Todos os prazos ativos</div><div id="lista-prazos"></div></div>
+      <div id="prazos-prenotacao"></div>
+      <div class="card"><div class="card-title">Prazos ativos</div><div id="lista-prazos"></div></div>
     </div>
 
     <div class="page" id="page-financeiro">
@@ -313,14 +315,15 @@
       <div class="card">
         <div class="form-grid">
           <div class="field"><label>Tipo de processo</label>
-            <select id="np-tipo">
+            <select id="np-tipo" onchange="toggleTipoCustom('np')">
               <option value="">Selecione...</option>
               <option>Usucapião extrajudicial</option><option>Retificação de área</option>
               <option>Estremação</option><option>Unificação</option>
               <option>Instituição de condomínio</option><option>Incorporação imobiliária</option>
               <option>Regularização imobiliária</option><option>Inventário extrajudicial</option>
               <option>Divórcio extrajudicial</option><option>Outro</option>
-            </select></div>
+            </select>
+            <input type="text" id="np-tipo-custom" placeholder="Descreva o tipo de processo..." style="display:none;margin-top:6px;width:100%;padding:9px 11px;border:1px solid var(--border-med);border-radius:var(--r);font-size:13px;font-family:inherit;"></div>
           <div class="field"><label>Cartório / RI</label><input type="text" id="np-cartorio" placeholder="Ex: 2º RI de Joinville"></div>
           <div class="field"><label>Cliente(s)</label><input type="text" id="np-cliente" placeholder="Nome completo"></div>
           <div class="field"><label>Imóvel / Descrição</label><input type="text" id="np-imovel" placeholder="Endereço ou matrícula"></div>
@@ -375,13 +378,14 @@
     <div class="modal-title">Editar processo</div>
     <div class="form-grid" style="margin-bottom:1rem;">
       <div class="field"><label>Tipo de processo</label>
-        <select id="edit-tipo">
+        <select id="edit-tipo" onchange="toggleTipoCustom('edit')">
           <option>Usucapião extrajudicial</option><option>Retificação de área</option>
           <option>Estremação</option><option>Unificação</option>
           <option>Instituição de condomínio</option><option>Incorporação imobiliária</option>
           <option>Regularização imobiliária</option><option>Inventário extrajudicial</option>
           <option>Divórcio extrajudicial</option><option>Outro</option>
-        </select></div>
+        </select>
+        <input type="text" id="edit-tipo-custom" placeholder="Descreva o tipo de processo..." style="display:none;margin-top:6px;width:100%;padding:9px 11px;border:1px solid var(--border-med);border-radius:var(--r);font-size:13px;font-family:inherit;"></div>
       <div class="field"><label>Cartório / RI</label><input type="text" id="edit-cartorio"></div>
       <div class="field"><label>Cliente(s)</label><input type="text" id="edit-cliente"></div>
       <div class="field"><label>Imóvel / Descrição</label><input type="text" id="edit-imovel"></div>
@@ -428,6 +432,7 @@
       <div class="field"><label>Data de recebimento</label><input type="date" id="exig-recebimento"></div>
       <div class="field"><label>Prazo para reingresso</label><input type="date" id="exig-data-reingresso"></div>
       <div class="field"><label>Número da nota / ref. cartório</label><input type="text" id="exig-nota" placeholder="Ex: NE-2025-089"></div>
+      <div class="field"><label>Prazo para cumprir diligência</label><input type="date" id="exig-prazo-diligencia"></div>
       <div class="field full"><label>Observações</label><textarea id="exig-obs" rows="3" placeholder="Descreva o teor da exigência..."></textarea></div>
     </div>
     <div class="form-actions">
@@ -561,6 +566,7 @@ async function salvarExigencia() {
     recebimento:document.getElementById('exig-recebimento').value,
     data_reingresso:document.getElementById('exig-data-reingresso').value||null,
     nota_ref:document.getElementById('exig-nota').value,
+    prazo_diligencia:document.getElementById('exig-prazo-diligencia').value||null,
     obs:document.getElementById('exig-obs').value
   });
   if(error){toast('Erro: '+error.message);return;}
@@ -606,6 +612,13 @@ async function addDocItem() {
 let _parcelaEditId = null;
 
 // lookup map for parcelas
+function toggleTipoCustom(prefix) {
+  var sel = document.getElementById(prefix+'-tipo');
+  var inp = document.getElementById(prefix+'-tipo-custom');
+  if(!sel || !inp) return;
+  inp.style.display = sel.value === 'Outro' ? 'block' : 'none';
+}
+
 function novaParcela(processoId) {
   abrirModalParcela(processoId, null);
 }
@@ -718,6 +731,7 @@ function abrirModalExig() {
   document.getElementById('exig-recebimento').value=new Date().toISOString().split('T')[0];
   document.getElementById('exig-data-reingresso').value='';
   document.getElementById('exig-nota').value='';
+  document.getElementById('exig-prazo-diligencia').value='';
   document.getElementById('exig-obs').value='';
   document.getElementById('modal-exig').classList.add('open');
 }
@@ -784,14 +798,20 @@ async function confirmarReingresso() {
 }
 
 async function toggleProrrogacao(exigId, val) {
-  await sb.from('exigencias').update({prorrogada:val}).eq('id',exigId);
-  await load(); activeProc=processos.find(p=>p.id===activeProc.id); renderExigencia();
+  const {error} = await sb.from('exigencias').update({prorrogada:val}).eq('id',exigId);
+  if(error){toast('Erro: '+error.message);return;}
+  processos=[];
+  await load();
+  activeProc=processos.find(function(p){return p.id===activeProc.id;});
+  renderDetalhe();
+  toast(val?'Prenotação marcada como prorrogada.':'Prorrogação removida.');
 }
 
 function abrirModalEdit() {
   if(!activeProc)return;
   const p=activeProc;
   document.getElementById('edit-tipo').value=p.tipo||'';
+  var etc=document.getElementById('edit-tipo-custom'); if(etc){etc.value=p.tipo_custom||'';etc.style.display=p.tipo==='Outro'?'block':'none';}
   document.getElementById('edit-cartorio').value=p.cartorio||'';
   document.getElementById('edit-cliente').value=p.cliente||'';
   document.getElementById('edit-imovel').value=p.imovel||'';
@@ -811,6 +831,7 @@ async function salvarEdicao() {
   if(!activeProc)return;
   const {error}=await sb.from('processos').update({
     tipo:document.getElementById('edit-tipo').value,
+    tipo_custom:document.getElementById('edit-tipo').value==='Outro'?(document.getElementById('edit-tipo-custom').value||null):null,
     cartorio:document.getElementById('edit-cartorio').value,
     cliente:document.getElementById('edit-cliente').value,
     imovel:document.getElementById('edit-imovel').value,
@@ -833,49 +854,128 @@ async function salvarEdicao() {
 }
 
 // PRAZOS
-function addDiasUteis(start,n){let d=new Date(start),c=0;while(c<n){d.setDate(d.getDate()+1);if(d.getDay()!==0&&d.getDay()!==6)c++;}return d;}
-function diasUteis(target){const t=new Date(target);t.setHours(0,0,0,0);const today=new Date();today.setHours(0,0,0,0);if(t<=today)return 0;let d=new Date(today),c=0;while(d<t){d.setDate(d.getDate()+1);if(d.getDay()!==0&&d.getDay()!==6)c++;}return c;}
+// Feriados Florianópolis 2025-2027 (YYYY-MM-DD)
+const FERIADOS = new Set([
+  '2025-01-01','2025-04-18','2025-04-21','2025-05-01','2025-06-19',
+  '2025-09-07','2025-10-12','2025-11-02','2025-11-15','2025-11-20','2025-12-25',
+  '2025-03-23','2025-02-28','2025-03-03','2025-03-04','2025-03-05',
+  '2026-01-01','2026-02-16','2026-02-17','2026-02-18',
+  '2026-03-23','2026-04-03','2026-04-21','2026-05-01',
+  '2026-06-04','2026-09-07','2026-10-12','2026-11-02',
+  '2026-11-15','2026-11-20','2026-12-24','2026-12-25','2026-12-31',
+  '2027-01-01','2027-04-02','2027-04-21','2027-05-01',
+  '2027-09-07','2027-10-12','2027-11-02','2027-11-15','2027-11-20','2027-12-25',
+]);
+
+function isDiaUtil(d) {
+  const dow = d.getDay();
+  if(dow === 0 || dow === 6) return false;
+  const key = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  return !FERIADOS.has(key);
+}
+
+function addDiasUteis(start, n) {
+  // Starts counting from the NEXT business day after start
+  let d = new Date(start);
+  d.setHours(0,0,0,0);
+  let count = 0;
+  while(count < n) {
+    d.setDate(d.getDate()+1);
+    if(isDiaUtil(d)) count++;
+  }
+  return d;
+}
+
+function diasUteis(target) {
+  const t = new Date(target); t.setHours(0,0,0,0);
+  const today = new Date(); today.setHours(0,0,0,0);
+  if(t <= today) return 0;
+  let d = new Date(today); let count = 0;
+  while(d < t) { d.setDate(d.getDate()+1); if(isDiaUtil(d)) count++; }
+  return count;
+}
 function fmtDate(d){return new Date(d).toLocaleDateString('pt-BR');}
 function daysLabel(n){return n===0?'Vencido':n+' dia'+(n!==1?'s':'')+' útei'+(n!==1?'s':'l');}
-function pCls(n){return n<=2?'pi-danger':n<=5?'pi-warning':'';}
-function dCls(n){return n<=2?'pd-danger':n<=5?'pd-warning':'pd-ok';}
-function pIcon(n){const c=n<=2?'var(--danger)':n<=5?'var(--warning)':'var(--text3)';return`<i class="ti ti-${n<=2?'alert-triangle':'clock'}" style="font-size:16px;color:${c};"></i>`;}
-
-function getPrazos(p) {
-  const prs=[];
-  if(p.apresentacao){
-    const v=addDiasUteis(p.apresentacao,20);
-    prs.push({nome:'Prenotação (20 dias úteis)',venc:v,dias:diasUteis(v)});
-    if(['analise','analise_reg'].includes(p.etapa)){
-      const v2=addDiasUteis(p.apresentacao,10);
-      prs.push({nome:'Análise do registrador (10 dias úteis)',venc:v2,dias:diasUteis(v2)});
-    }
+function pCls(n, tipo){
+  if(tipo==='prenotacao') return '';
+  return n<=2?'pi-danger':n<=5?'pi-warning':'';
+}
+function dCls(n, tipo){
+  if(tipo==='prenotacao') return 'pd-ok';
+  if(tipo==='analise_ri') return n<=2?'pd-danger':n<=5?'pd-warning':'pd-info';
+  return n<=2?'pd-danger':n<=5?'pd-warning':'pd-ok';
+}
+function pIcon(n, tipo){
+  if(tipo==='prenotacao') return '<i class="ti ti-info-circle" style="font-size:16px;color:var(--text3);"></i>';
+  if(tipo==='analise_ri') {
+    const c = n<=2?'var(--danger)':n<=5?'var(--warning)':'var(--info)';
+    return '<i class="ti ti-building-bank" style="font-size:16px;color:'+c+';"></i>';
   }
-  const exigsAbertas=(p.exigencias||[]).filter(e=>!e.resolvida);
-  exigsAbertas.forEach(e=>{
-    const dr=e.data_reingresso||e.reingresso;
-    if(dr){
-      const d=diasUteis(dr);
-      prs.push({nome:'Prazo reingresso ('+(e.nota_ref||'Exigência')+')',venc:new Date(dr),dias:d});
+  const c = n<=2?'var(--danger)':n<=5?'var(--warning)':'var(--text2)';
+  return '<i class="ti ti-alert-triangle" style="font-size:16px;color:'+c+';"></i>';
+}
+
+// Tipos de prazo: 'prenotacao' | 'diligencia' | 'analise_ri'
+function getPrazos(p) {
+  const prs = [];
+
+  // Prenotação — informativo apenas
+  if(p.apresentacao) {
+    const v = addDiasUteis(p.apresentacao, 20);
+    prs.push({nome:'Prenotação (20 dias úteis)', venc:v, dias:diasUteis(v), tipo:'prenotacao'});
+  }
+
+  // Análise RI inicial (se não há exigências)
+  const exigs = p.exigencias || [];
+  const abertas = exigs.filter(function(e){ return !e.resolvida; });
+  const resolvidas = exigs.filter(function(e){ return e.resolvida; });
+
+  if(p.apresentacao && abertas.length === 0 && resolvidas.length === 0) {
+    const v = addDiasUteis(p.apresentacao, 10);
+    const d = diasUteis(v);
+    if(d > 0) prs.push({nome:'Análise no RI (10 dias úteis)', venc:v, dias:d, tipo:'analise_ri'});
+  }
+
+  // Diligência (prazo para cumprir exigência aberta)
+  abertas.forEach(function(e) {
+    if(e.prazo_diligencia) {
+      const d = diasUteis(e.prazo_diligencia);
+      prs.push({nome:'Cumprir diligência — '+(e.nota_ref||'NE'), venc:new Date(e.prazo_diligencia), dias:d, tipo:'diligencia'});
     }
   });
-  // novo prazo pós-reingresso
-  const exigsResolvidas=(p.exigencias||[]).filter(e=>e.resolvida&&e.novo_prazo_analise);
-  exigsResolvidas.forEach(e=>{
-    const d=diasUteis(e.novo_prazo_analise);
-    if(d>0) prs.push({nome:'Análise pós-reingresso ('+(e.nota_ref||'Exigência')+')',venc:new Date(e.novo_prazo_analise),dias:d});
+
+  // Análise RI pós-reingresso
+  resolvidas.forEach(function(e) {
+    if(e.novo_prazo_analise) {
+      const d = diasUteis(e.novo_prazo_analise);
+      if(d > 0) prs.push({nome:'Análise no RI — pós '+(e.nota_ref||'NE'), venc:new Date(e.novo_prazo_analise), dias:d, tipo:'analise_ri'});
+    }
   });
+
   return prs;
 }
 
+// Prazo relevante para alertas (exclui prenotação)
+function getPrazosAlertas(p) {
+  return getPrazos(p).filter(function(pr){ return pr.tipo !== 'prenotacao'; });
+}
+
 function etapaInfo(p) {
-  const e=p.exigencias?.[0]?'exigencia':p.etapa;
-  return({docs:['b-gray','Documentação'],analise:['b-warn','Aguardando análise'],analise_reg:['b-info','Em análise'],reingresso:['b-purple','Pós-reingresso'],exigencia:['b-warn','Exigência aberta'],concluido:['b-success','Concluído']})[e]||['b-gray',e];
+  const exigs = p.exigencias || [];
+  const temAberta = exigs.some(function(e){ return !e.resolvida; });
+  const temResolvida = exigs.some(function(e){ return e.resolvida; });
+  
+  if(p.etapa === 'concluido') return ['b-success','Concluído'];
+  if(temAberta) return ['b-warn','Exigência aberta'];
+  if(p.etapa === 'reingresso' || temResolvida) return ['b-info','Análise no RI'];
+  if(p.etapa === 'analise' || p.etapa === 'analise_reg') return ['b-info','Análise no RI'];
+  if(p.etapa === 'docs') return ['b-gray','Documentação'];
+  return ['b-gray', p.tipo_custom || p.etapa || 'Em andamento'];
 }
 
 // RENDER PAINEL
 function renderPainel() {
-  const all=processos.flatMap(p=>getPrazos(p).map(pr=>({...pr,proc:p})));
+  const all=processos.flatMap(function(p){return getPrazosAlertas(p).map(function(pr){return Object.assign({},pr,{proc:p});});});
   const urg=all.filter(p=>p.dias<=5).length, exigs=processos.filter(p=>p.exigencias?.[0]).length;
   const aRec=processos.reduce((a,p)=>a+((p.honorarios||0)-(p.recebido||0)),0);
   document.getElementById('metrics-painel').innerHTML=`
@@ -937,21 +1037,36 @@ function abrirDetalhe(id) {
 function renderDetalhe() {
   const p=activeProc, prazos=getPrazos(p), [bc,bl]=etapaInfo(p);
   const docs=p.checklist_docs||[], dd=docs.filter(d=>d.done).length;
-  // Build dynamic timeline with one entry per NE
+  // Build dynamic timeline
+  var exigsOrdenadas = (p.exigencias||[]).slice().sort(function(a,b){
+    return (a.created_at||'').localeCompare(b.created_at||'');
+  });
+  var temExig = exigsOrdenadas.length > 0;
+  var todasResolvidas = temExig && exigsOrdenadas.every(function(e){ return e.resolvida; });
+  var temAberta = exigsOrdenadas.some(function(e){ return !e.resolvida; });
+
   const etapas=[
-    {lbl:'Documentação reunida',dt:null,e:p.etapa!=='docs'?'done':'active'},
-    {lbl:'Apresentação ao cartório',dt:p.apresentacao?fmtDate(p.apresentacao):null,e:p.apresentacao&&p.etapa!=='docs'?'done':'pending'},
-    {lbl:'Análise / prenotação em curso',dt:null,e:!(p.exigencias&&p.exigencias.length)&&['analise','analise_reg'].includes(p.etapa)?'active':p.etapa==='concluido'||((p.exigencias||[]).length>0)?'done':'pending'},
+    {lbl:'Documentação reunida', dt:null, e: p.etapa!=='docs'?'done':'active'},
+    {lbl:'Apresentação ao cartório', dt:p.apresentacao?fmtDate(p.apresentacao):null,
+      e: p.apresentacao ? 'done' : 'pending'},
+    {lbl:'Análise no RI (10 dias úteis)',
+      dt: p.apresentacao && !temExig ? fmtDate(addDiasUteis(p.apresentacao,10)) : null,
+      e: !temExig && p.etapa!=='docs' && p.etapa!=='concluido' ? 'active'
+        : todasResolvidas || p.etapa==='concluido' ? 'done'
+        : temExig ? 'done' : 'pending'},
   ];
-  // Add one entry per NE (both open and resolved)
-  (p.exigencias||[]).forEach(function(e){
-    if(e.resolvida){
-      etapas.push({lbl:'NE: '+(e.nota_ref||'Exigência')+' — Reingressada',dt:e.data_reingresso_realizado?fmtDate(e.data_reingresso_realizado):null,e:'done'});
+
+  // One entry per NE
+  exigsOrdenadas.forEach(function(e) {
+    if(e.resolvida) {
+      etapas.push({lbl:'NE '+( e.nota_ref||'') +' — Exigência cumprida', dt:e.data_reingresso_realizado?fmtDate(e.data_reingresso_realizado):null, e:'done'});
+      etapas.push({lbl:'Análise no RI (10 dias úteis) — pós '+( e.nota_ref||''), dt:e.novo_prazo_analise?fmtDate(new Date(e.novo_prazo_analise)):null, e: p.etapa==='concluido'?'done':'active'});
     } else {
-      etapas.push({lbl:'NE: '+(e.nota_ref||'Exigência')+' — Em aberto',dt:e.recebimento?fmtDate(e.recebimento):null,e:'exig'});
+      etapas.push({lbl:'NE '+(e.nota_ref||'')+' — Exigência em aberto', dt:e.recebimento?fmtDate(e.recebimento):null, e:'exig'});
     }
   });
-  etapas.push({lbl:'Registro concluído',dt:null,e:p.etapa==='concluido'?'done':'pending'});
+
+  etapas.push({lbl:'Registro concluído', dt:null, e:p.etapa==='concluido'?'done':'pending'});
   const dc={done:'dot-done',active:'dot-active',exig:'dot-exig',pending:'dot-pend'};
   const saldo=(p.honorarios||0)-(p.recebido||0);
   document.getElementById('detalhe-content').innerHTML=`
@@ -1169,19 +1284,25 @@ function renderExigencia() {
 
 // RENDER PRAZOS
 let _prazosFiltrados = [];
+let _prazosInfo = []; // prenotação
 
 function renderListaPrazos(filtro) {
-  const lista = filtro==='v2' ? _prazosFiltrados.filter(p=>p.dias<=2)
-    : filtro==='v5' ? _prazosFiltrados.filter(p=>p.dias>2&&p.dias<=5)
-    : filtro==='v10' ? _prazosFiltrados.filter(p=>p.dias>5&&p.dias<=10)
+  const lista = filtro==='v2' ? _prazosFiltrados.filter(function(p){return p.dias<=2;})
+    : filtro==='v5' ? _prazosFiltrados.filter(function(p){return p.dias>2&&p.dias<=5;})
+    : filtro==='v10' ? _prazosFiltrados.filter(function(p){return p.dias>5&&p.dias<=10;})
     : _prazosFiltrados;
   const el = document.getElementById('lista-prazos');
   if(!el) return;
   el.innerHTML = lista.length ? lista.map(function(p){
-    return '<div class="prazo-item '+pCls(p.dias)+'">'+pIcon(p.dias)
-      +'<div style="flex:1"><div class="pname">'+p.nome+'</div>'
+    var tipoBadge = p.tipo==='analise_ri'
+      ? '<span class="badge b-info" style="font-size:10px;margin-left:6px;">Análise RI</span>'
+      : p.tipo==='diligencia'
+      ? '<span class="badge b-warn" style="font-size:10px;margin-left:6px;">Diligência</span>'
+      : '';
+    return '<div class="prazo-item '+pCls(p.dias,p.tipo)+'">'+pIcon(p.dias,p.tipo)
+      +'<div style="flex:1"><div class="pname">'+p.nome+tipoBadge+'</div>'
       +'<div class="psub">'+p.proc.cliente+' · '+(p.proc.protocolo||'—')+' · Vence '+fmtDate(p.venc)+'</div></div>'
-      +'<span class="pdays '+dCls(p.dias)+'">'+daysLabel(p.dias)+'</span>'
+      +'<span class="pdays '+dCls(p.dias,p.tipo)+'">'+daysLabel(p.dias)+'</span>'
       +'<button class="btn" data-action="abrir-proc" data-id="'+p.proc.id+'">Abrir</button>'
       +'</div>';
   }).join('') : '<div class="empty"><i class="ti ti-circle-check"></i>Nenhum prazo neste filtro</div>';
@@ -1191,12 +1312,29 @@ function renderListaPrazos(filtro) {
 }
 
 function renderPrazos() {
-  const all = processos.flatMap(function(p){ return getPrazos(p).map(function(pr){ return Object.assign({},pr,{proc:p}); }); });
-  all.sort(function(a,b){ return a.dias-b.dias; });
+  const allRaw = processos.flatMap(function(p){ return getPrazos(p).map(function(pr){ return Object.assign({},pr,{proc:p}); }); });
+  allRaw.sort(function(a,b){ return a.dias-b.dias; });
+  _prazosInfo = allRaw.filter(function(p){ return p.tipo==='prenotacao'; });
+  const all = allRaw.filter(function(p){ return p.tipo!=='prenotacao'; });
   _prazosFiltrados = all;
   const v2=all.filter(function(p){return p.dias<=2;}).length;
   const v5=all.filter(function(p){return p.dias>2&&p.dias<=5;}).length;
   const v10=all.filter(function(p){return p.dias>5&&p.dias<=10;}).length;
+  // Show prenotacao section below metrics if any
+  var prenotacaoHTML = '';
+  if(_prazosInfo.length) {
+    prenotacaoHTML = '<div class="card" style="margin-bottom:12px;padding:10px 14px;">'
+      +'<div style="font-size:11px;font-weight:500;color:var(--text2);margin-bottom:8px;">PRENOTAÇÃO — informativo</div>'
+      +_prazosInfo.map(function(p){
+        return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);">'
+          +'<i class="ti ti-info-circle" style="font-size:14px;color:var(--text3);"></i>'
+          +'<div style="flex:1;font-size:12px;">'+p.proc.cliente+' · '+(p.proc.protocolo||'—')+'</div>'
+          +'<span style="font-size:12px;color:var(--text2);">Vence '+fmtDate(p.venc)+'</span>'
+          +'<span style="font-size:12px;color:'+(p.dias===0?'var(--danger)':'var(--text3)')+';">'+daysLabel(p.dias)+'</span>'
+          +'<button class="btn" data-action="abrir-proc" data-id="'+p.proc.id+'">Abrir</button>'
+          +'</div>';
+      }).join('')+'</div>';
+  }
   document.getElementById('metrics-prazos').innerHTML =
     '<div class="metric metric-prazo" id="metric-prazo-v2" style="cursor:pointer" data-filtro="v2">'
     +'<div class="metric-label">Hoje / amanhã</div>'
@@ -1211,6 +1349,8 @@ function renderPrazos() {
     +'<div class="metric-label">Total de prazos</div>'
     +'<div class="metric-value">'+all.length+'</div></div>';
   renderListaPrazos('todos');
+  var prenotDiv = document.getElementById('prazos-prenotacao');
+  if(prenotDiv) prenotDiv.innerHTML = prenotacaoHTML;
   // Event delegation for metrics
   var mp = document.getElementById('metrics-prazos');
   if(mp) mp.onclick = function(e){ var m=e.target.closest('[data-filtro]'); if(m) renderListaPrazos(m.dataset.filtro); };
