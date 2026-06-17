@@ -1404,7 +1404,7 @@ function getPrazoPrincipal(p) {
 // Prazos para ALERTAS (exclui prenotação, exclui concluído)
 function getPrazosAlertas(p) {
   if(p.etapa === 'concluido') return [];
-  return getPrazos(p).filter(function(pr){
+  return getPrazosAtivos(p).filter(function(pr){
     return pr.tipo !== 'prenotacao' && !pr.semPrazo;
   });
 }
@@ -1412,7 +1412,7 @@ function getPrazosAlertas(p) {
 // Prazos para ALERTAS incluindo NEs sem prazo definido (para lista de processos)
 function getPrazosAlertasAll(p) {
   if(p.etapa === 'concluido') return [];
-  return getPrazos(p).filter(function(pr){ return pr.tipo !== 'prenotacao'; });
+  return getPrazosAtivos(p).filter(function(pr){ return pr.tipo !== 'prenotacao'; });
 }
 
 // Prazo principal para coluna da lista de processos
@@ -1441,7 +1441,7 @@ function getPrazoPrincipal(p) {
 // - Inclui diligência e análise RI mesmo vencidos
 function getPrazosAlertas(p) {
   if(p.etapa === 'concluido') return [];
-  return getPrazos(p).filter(function(pr){ return pr.tipo !== 'prenotacao'; });
+  return getPrazosAtivos(p).filter(function(pr){ return pr.tipo !== 'prenotacao'; });
 }
 
 // Prazo principal para exibir na coluna da lista de processos
@@ -1532,7 +1532,7 @@ function abrirDetalhe(id) {
 }
 
 function renderDetalhe() {
-  const p=activeProc, prazos=getPrazos(p), [bc,bl]=etapaInfo(p);
+  const p=activeProc, prazos=getPrazosAtivos(p), [bc,bl]=etapaInfo(p);
   const docs=p.checklist_docs||[], dd=docs.filter(d=>d.done).length;
   // Build dynamic timeline
   var exigsOrdenadas = (p.exigencias||[]).slice().sort(function(a,b){
@@ -1887,7 +1887,7 @@ function renderListaPrazos(filtro) {
 
 function renderPrazos() {
   // Prenotacao shown for all, alertas only for non-concluido
-  const allRaw = processos.flatMap(function(p){ return getPrazos(p).map(function(pr){ return Object.assign({},pr,{proc:p}); }); });
+  const allRaw = processos.flatMap(function(p){ return getPrazosAtivos(p).map(function(pr){ return Object.assign({},pr,{proc:p}); }); });
   allRaw.sort(function(a,b){ return a.dias-b.dias; });
   _prazosInfo = allRaw.filter(function(p){ return p.tipo==='prenotacao' && p.proc.etapa!=='concluido'; });
   const all = allRaw.filter(function(p){ return p.tipo!=='prenotacao' && p.proc.etapa!=='concluido'; });
