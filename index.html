@@ -443,6 +443,60 @@
   </div>
 </div>
 
+<!-- MODAL NOVO/EDITAR PROTOCOLO -->
+<div class="modal-bg" id="modal-protocolo">
+  <div class="modal" style="width:480px;">
+    <div class="modal-title" id="modal-protocolo-title">Novo protocolo</div>
+    <div class="form-grid" style="margin-bottom:1rem;">
+      <div class="field"><label>Número ONR</label><input type="text" id="prot-onr" placeholder="#2026-"></div>
+      <div class="field"><label>Número interno do cartório</label><input type="text" id="prot-interno" placeholder="Ex: 1.900"></div>
+      <div class="field"><label>Data de apresentação</label><input type="date" id="prot-apresentacao"></div>
+      <div class="field"><label>Status</label>
+        <select id="prot-status">
+          <option value="ativo">Ativo</option>
+          <option value="cancelado">Cancelado</option>
+        </select>
+      </div>
+      <div class="field full" id="prot-cancel-fields" style="display:none;">
+        <label>Data de cancelamento</label><input type="date" id="prot-data-cancelamento">
+        <label style="margin-top:8px;">Motivo do cancelamento</label>
+        <input type="text" id="prot-motivo" placeholder="Ex: Prenotação vencida — novo protocolo aberto">
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn" onclick="fecharModal('modal-protocolo')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarProtocolo()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL NOVA FASE -->
+<div class="modal-bg" id="modal-fase">
+  <div class="modal" style="width:480px;">
+    <div class="modal-title">Registrar fase</div>
+    <div class="form-grid" style="margin-bottom:1rem;">
+      <div class="field full"><label>Tipo de fase</label>
+        <select id="fase-tipo" onchange="toggleFaseFields()">
+          <option value="analise_ri">Análise no RI (10 dias úteis)</option>
+          <option value="ne_aberta">NE aberta — Cumprir diligência</option>
+          <option value="notificacao">Notificação (aguardando)</option>
+          <option value="emolumentos">Emolumentos — aguardando pagamento</option>
+          <option value="analise_final">Análise final no RI (10 dias úteis)</option>
+          <option value="concluido">Registro concluído</option>
+        </select>
+      </div>
+      <div class="field" id="fase-inicio-field"><label>Data de início</label><input type="date" id="fase-inicio"></div>
+      <div class="field" id="fase-venc-field"><label>Data de vencimento</label><input type="date" id="fase-vencimento"></div>
+      <div class="field full" id="fase-ne-field" style="display:none;"><label>Referência da NE</label><input type="text" id="fase-ne-ref" placeholder="Ex: NE01, NEO Setor Ofícios"></div>
+      <div class="field full"><label>Observação (opcional)</label><input type="text" id="fase-obs" placeholder=""></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn" onclick="fecharModal('modal-fase')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarFase()">Registrar</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -500,7 +554,7 @@ window.addEventListener('load', initApp);
 
 async function load() {
   try {
-    const {data,error}=await sb.from('processos').select('*, exigencias(*, exigencia_itens(*)), checklist_docs(*), parcelas(*)').eq('user_id',currentUser.id).order('created_at',{ascending:false});
+    const {data,error}=await sb.from('processos').select('*, exigencias(*, exigencia_itens(*)), checklist_docs(*), parcelas(*), protocolos(*, fases(*))').eq('user_id',currentUser.id).order('created_at',{ascending:false});
     if(error){console.error('Erro load:',error);return;}
     if(data){
       // flatten exigencia_itens into top level for compatibility
@@ -561,19 +615,34 @@ async function criarChecklistPadrao(processoId, tipo) {
 }
 
 async function salvarExigencia() {
-  if(!activeProc)return;
-  const {error}=await sb.from('exigencias').insert({
-    processo_id:activeProc.id, user_id:currentUser.id,
-    recebimento:document.getElementById('exig-recebimento').value,
-    data_reingresso:document.getElementById('exig-data-reingresso').value||null,
-    nota_ref:document.getElementById('exig-nota').value,
-    prazo_diligencia:document.getElementById('exig-prazo-diligencia').value||null,
-    obs:document.getElementById('exig-obs').value
-  });
-  if(error){toast('Erro: '+error.message);return;}
-  await sb.from('processos').update({etapa:'exigencia'}).eq('id',activeProc.id);
-  toast('Exigência registrada!'); fecharModal('modal-exig');
-  await load(); activeProc=processos.find(p=>p.id===activeProc.id); renderDetalhe();
+  if(!activeProc) return;
+  const obj = {
+    recebimento: document.getElementById('exig-recebimento').value,
+    data_reingresso: document.getElementById('exig-data-reingresso').value||null,
+    nota_ref: document.getElementById('exig-nota').value,
+    prazo_diligencia: document.getElementById('exig-prazo-diligencia').value||null,
+    obs: document.getElementById('exig-obs').value
+  };
+  var error;
+  if(window._editNEId) {
+    ({error} = await sb.from('exigencias').update(obj).eq('id', window._editNEId));
+    if(!error) toast('Exigência atualizada!');
+  } else {
+    ({error} = await sb.from('exigencias').insert(Object.assign({}, obj, {
+      processo_id: activeProc.id, user_id: currentUser.id
+    })));
+    if(!error) {
+      await sb.from('processos').update({etapa:'exigencia'}).eq('id', activeProc.id);
+      toast('Exigência registrada!');
+    }
+  }
+  if(error){toast('Erro: '+error.message); return;}
+  // Reset modal
+  window._editNEId = null;
+  document.querySelector('#modal-exig .modal-title').textContent = 'Nova nota de exigência';
+  document.querySelector('#modal-exig .btn-primary').textContent = 'Salvar exigência';
+  fecharModal('modal-exig');
+  await load(); activeProc=processos.find(function(p){return p.id===activeProc.id;}); renderDetalhe();
 }
 
 async function toggleCheckDoc(id,done) {
@@ -672,6 +741,176 @@ async function deletarParcela(id) {
   renderFinanceiro();
 }
 
+// ── PROTOCOLOS ────────────────────────────────────────────────────────────────
+let _editProtocoloId = null;
+
+function abrirModalProtocolo(protocoloId) {
+  _editProtocoloId = protocoloId || null;
+  var title = document.getElementById('modal-protocolo-title');
+  if(protocoloId) {
+    var prot = (activeProc.protocolos||[]).find(function(p){ return p.id===protocoloId; });
+    if(prot) {
+      title.textContent = 'Editar protocolo';
+      document.getElementById('prot-onr').value = prot.numero_onr||'';
+      document.getElementById('prot-interno').value = prot.numero_interno||'';
+      document.getElementById('prot-apresentacao').value = prot.apresentacao||'';
+      document.getElementById('prot-status').value = prot.status||'ativo';
+      document.getElementById('prot-data-cancelamento').value = prot.data_cancelamento||'';
+      document.getElementById('prot-motivo').value = prot.motivo_cancelamento||'';
+      document.getElementById('prot-cancel-fields').style.display = prot.status==='cancelado'?'block':'none';
+    }
+  } else {
+    title.textContent = 'Novo protocolo';
+    document.getElementById('prot-onr').value = '';
+    document.getElementById('prot-interno').value = '';
+    document.getElementById('prot-apresentacao').value = new Date().toISOString().split('T')[0];
+    document.getElementById('prot-status').value = 'ativo';
+    document.getElementById('prot-cancel-fields').style.display = 'none';
+  }
+  document.getElementById('modal-protocolo').classList.add('open');
+}
+
+document.addEventListener('change', function(e) {
+  if(e.target && e.target.id === 'prot-status') {
+    document.getElementById('prot-cancel-fields').style.display = e.target.value==='cancelado'?'block':'none';
+  }
+});
+
+async function salvarProtocolo() {
+  if(!activeProc) return;
+  var prots = activeProc.protocolos || [];
+  var ordem = _editProtocoloId
+    ? (prots.find(function(p){ return p.id===_editProtocoloId; })||{}).ordem || 1
+    : prots.length + 1;
+
+  var obj = {
+    processo_id: activeProc.id,
+    user_id: currentUser.id,
+    numero_onr: document.getElementById('prot-onr').value||null,
+    numero_interno: document.getElementById('prot-interno').value||null,
+    apresentacao: document.getElementById('prot-apresentacao').value||null,
+    status: document.getElementById('prot-status').value,
+    data_cancelamento: document.getElementById('prot-data-cancelamento').value||null,
+    motivo_cancelamento: document.getElementById('prot-motivo').value||null,
+    ordem: ordem
+  };
+
+  var error;
+  if(_editProtocoloId) {
+    ({error} = await sb.from('protocolos').update(obj).eq('id', _editProtocoloId));
+  } else {
+    ({error} = await sb.from('protocolos').insert(obj));
+  }
+  if(error){ toast('Erro: '+error.message); return; }
+  toast(_editProtocoloId ? 'Protocolo atualizado!' : 'Novo protocolo adicionado!');
+  fecharModal('modal-protocolo');
+  processos = []; await load();
+  activeProc = processos.find(function(p){ return p.id===activeProc.id; });
+  renderDetalhe();
+}
+
+// ── FASES ──────────────────────────────────────────────────────────────────
+let _faseProtocoloId = null;
+
+function toggleFaseFields() {
+  var tipo = document.getElementById('fase-tipo').value;
+  var neField = document.getElementById('fase-ne-field');
+  var vencField = document.getElementById('fase-venc-field');
+  var inicioField = document.getElementById('fase-inicio-field');
+  neField.style.display = ['ne_aberta','notificacao','emolumentos'].includes(tipo) ? 'block' : 'none';
+  vencField.style.display = ['ne_aberta','emolumentos'].includes(tipo) ? 'block' : 'none';
+  inicioField.style.display = tipo !== 'concluido' ? 'block' : 'none';
+  // Auto-calculate vencimento for analise_ri and analise_final
+  if(tipo === 'analise_ri' || tipo === 'analise_final') {
+    var inicio = document.getElementById('fase-inicio').value;
+    if(inicio) {
+      var venc = addDiasUteis(inicio, 10);
+      document.getElementById('fase-vencimento').value = venc.toISOString().split('T')[0];
+    }
+    vencField.style.display = 'block';
+    document.getElementById('fase-vencimento').readOnly = true;
+  } else {
+    document.getElementById('fase-vencimento').readOnly = false;
+  }
+}
+
+function abrirModalFase(protocoloId) {
+  _faseProtocoloId = protocoloId;
+  document.getElementById('fase-tipo').value = 'analise_ri';
+  document.getElementById('fase-inicio').value = new Date().toISOString().split('T')[0];
+  document.getElementById('fase-ne-ref').value = '';
+  document.getElementById('fase-obs').value = '';
+  // Auto-calc vencimento
+  var venc = addDiasUteis(new Date().toISOString().split('T')[0], 10);
+  document.getElementById('fase-vencimento').value = venc.toISOString().split('T')[0];
+  document.getElementById('fase-vencimento').readOnly = true;
+  toggleFaseFields();
+  document.getElementById('modal-fase').classList.add('open');
+}
+
+document.addEventListener('change', function(e) {
+  if(e.target && e.target.id === 'fase-inicio') {
+    var tipo = document.getElementById('fase-tipo').value;
+    if(tipo === 'analise_ri' || tipo === 'analise_final') {
+      var venc = addDiasUteis(e.target.value, 10);
+      document.getElementById('fase-vencimento').value = venc.toISOString().split('T')[0];
+    }
+  }
+});
+
+async function salvarFase() {
+  if(!_faseProtocoloId || !activeProc) return;
+  var tipo = document.getElementById('fase-tipo').value;
+  var inicio = document.getElementById('fase-inicio').value;
+  var venc = document.getElementById('fase-vencimento').value;
+
+  // First, conclude current active phase
+  var faseAtiva = null;
+  var prot = (activeProc.protocolos||[]).find(function(p){ return p.id===_faseProtocoloId; });
+  if(prot) {
+    var fasesAtivas = (prot.fases||[]).filter(function(f){ return f.status==='ativo'; });
+    if(fasesAtivas.length) {
+      faseAtiva = fasesAtivas[fasesAtivas.length-1];
+      await sb.from('fases').update({status:'concluido', data_conclusao:inicio||new Date().toISOString().split('T')[0]}).eq('id', faseAtiva.id);
+    }
+  }
+
+  var obj = {
+    protocolo_id: _faseProtocoloId,
+    processo_id: activeProc.id,
+    user_id: currentUser.id,
+    tipo: tipo,
+    status: tipo === 'concluido' ? 'concluido' : 'ativo',
+    prazo_inicio: inicio||null,
+    prazo_vencimento: venc||null,
+    ne_ref: document.getElementById('fase-ne-ref').value||null,
+    observacao: document.getElementById('fase-obs').value||null,
+    data_conclusao: tipo === 'concluido' ? (inicio||null) : null
+  };
+
+  var {error} = await sb.from('fases').insert(obj);
+  if(error){ toast('Erro: '+error.message); return; }
+
+  // Update processo etapa
+  var etapaMap = {analise_ri:'analise_reg', ne_aberta:'exigencia', notificacao:'reingresso',
+    emolumentos:'reingresso', analise_final:'analise_reg', concluido:'concluido'};
+  await sb.from('processos').update({etapa: etapaMap[tipo]||'analise_reg'}).eq('id', activeProc.id);
+
+  toast('Fase registrada!');
+  fecharModal('modal-fase');
+  processos = []; await load();
+  activeProc = processos.find(function(p){ return p.id===activeProc.id; });
+  renderDetalhe();
+}
+
+async function concluirFase(faseId) {
+  var hoje = new Date().toISOString().split('T')[0];
+  await sb.from('fases').update({status:'concluido', data_conclusao:hoje}).eq('id', faseId);
+  processos = []; await load();
+  activeProc = processos.find(function(p){ return p.id===activeProc.id; });
+  renderDetalhe();
+}
+
 async function concluirRegistro() {
   if(!activeProc) return;
   if(activeProc.etapa === 'concluido') {
@@ -696,6 +935,17 @@ async function deletarExigencia(id) {
   await load();
   activeProc = processos.find(p=>p.id===activeProc.id);
   renderExigencia();
+  // Event delegation for protocolo/fase buttons in detalhe
+  var dc = document.getElementById('detalhe-content');
+  if(dc) {
+    dc.onclick = function(e){
+      var btn = e.target.closest('[data-action]');
+      if(!btn) return;
+      var action = btn.dataset.action, id = btn.dataset.id;
+      if(action==='edit-prot') abrirModalProtocolo(id);
+      else if(action==='nova-fase') abrirModalFase(id);
+    };
+  }
   // Update concluir button based on etapa
   const btnC = document.getElementById('btn-concluir');
   if(btnC) {
@@ -736,7 +986,14 @@ function abrirModalExig() {
   document.getElementById('exig-obs').value='';
   document.getElementById('modal-exig').classList.add('open');
 }
-function fecharModal(id){document.getElementById(id).classList.remove('open');}
+function fecharModal(id){
+  document.getElementById(id).classList.remove('open');
+  if(id==='modal-exig' && window._editNEId){
+    window._editNEId=null;
+    var t=document.querySelector('#modal-exig .modal-title'); if(t) t.textContent='Nova nota de exigência';
+    var b=document.querySelector('#modal-exig .btn-primary'); if(b) b.textContent='Salvar exigência';
+  }
+}
 document.getElementById('modal-exig').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-exig');});
 document.getElementById('modal-edit').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-edit');});
 document.getElementById('modal-parcela').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-parcela');});
@@ -819,6 +1076,23 @@ async function confirmarReingresso() {
   await load();
   activeProc = processos.find(function(p){ return p.id===activeProc.id; });
   renderDetalhe();
+}
+
+async function editarNE(exigId) {
+  // Find the NE
+  var exig = (activeProc.exigencias||[]).find(function(e){ return e.id===exigId; });
+  if(!exig) return;
+  // Populate exig modal with existing data
+  document.getElementById('exig-recebimento').value = exig.recebimento||'';
+  document.getElementById('exig-data-reingresso').value = exig.data_reingresso||exig.reingresso||'';
+  document.getElementById('exig-nota').value = exig.nota_ref||'';
+  document.getElementById('exig-prazo-diligencia').value = exig.prazo_diligencia||'';
+  document.getElementById('exig-obs').value = exig.obs||'';
+  // Change modal to edit mode
+  window._editNEId = exigId;
+  document.querySelector('#modal-exig .modal-title').textContent = 'Editar nota de exigência';
+  document.querySelector('#modal-exig .btn-primary').textContent = 'Salvar alterações';
+  document.getElementById('modal-exig').classList.add('open');
 }
 
 async function toggleProrrogacao(exigId, val) {
@@ -942,55 +1216,223 @@ function pIcon(n, tipo){
   return '<i class="ti ti-alert-triangle" style="font-size:16px;color:'+c+';"></i>';
 }
 
-// Tipos de prazo: 'prenotacao' | 'diligencia' | 'analise_ri'
-function getPrazos(p) {
-  const prs = [];
-  const exigs = p.exigencias || [];
-  const abertas = exigs.filter(function(e){ return !e.resolvida; });
-  const resolvidas = exigs.filter(function(e){ return e.resolvida; });
+// ── PRAZO ENGINE ─────────────────────────────────────────────────────────────
+// Estado atual de um processo é determinado pelas fases do protocolo ativo.
+// Só existem prazos ativos para o protocolo mais recente com status='ativo'.
+// Prazos de protocolos cancelados ou fases concluídas NÃO aparecem.
 
-  // ── Prenotação — SEMPRE informativo, nunca alerta ──
+function getProtocoloAtivo(p) {
+  var prots = (p.protocolos || []).slice().sort(function(a,b){
+    return (a.ordem||0) - (b.ordem||0);
+  });
+  // Most recent active protocol
+  var ativos = prots.filter(function(pr){ return pr.status !== 'cancelado'; });
+  return ativos[ativos.length - 1] || null;
+}
+
+function getFaseAtiva(protocolo) {
+  if(!protocolo) return null;
+  var fases = (protocolo.fases || []).filter(function(f){ return f.status === 'ativo'; });
+  fases.sort(function(a,b){ return (a.created_at||'').localeCompare(b.created_at||''); });
+  return fases[fases.length - 1] || null;
+}
+
+// Prenotação: 20 dias CORRIDOS (não úteis) a partir da data de apresentação
+function vencimentoPrenotacao(apresentacao) {
+  if(!apresentacao) return null;
+  var d = new Date(apresentacao + 'T12:00:00');
+  d.setDate(d.getDate() + 20);
+  return d;
+}
+
+// Retorna os prazos ATIVOS do processo (para alertas e listagem)
+// Só considera o protocolo ativo e a fase atual
+function getPrazosAtivos(p) {
+  if(p.etapa === 'concluido') return [];
+
+  // NEW SYSTEM: use protocolos/fases if available
+  var prot = getProtocoloAtivo(p);
+  if(prot) {
+    return getPrazosDeProtocolo(p, prot);
+  }
+
+  // LEGACY: fallback for processes without protocolos table yet
+  return getPrazosLegacy(p);
+}
+
+function getPrazosDeProtocolo(p, prot) {
+  var prs = [];
+  var fase = getFaseAtiva(prot);
+  if(!fase) return [];
+
+  // Prenotação do protocolo ativo — prazo fatal sempre visível
+  var prenotVenc = vencimentoPrenotacao(prot.apresentacao);
+  if(prenotVenc) {
+    var prenotDias = diasUteisRestantes(prenotVenc);
+    prs.push({
+      nome: 'Prenotação — prazo fatal (Prot. ' + (prot.ordem||1) + ')',
+      venc: prenotVenc,
+      dias: prenotDias,
+      tipo: 'prenotacao_fatal',
+      isFatal: true
+    });
+  }
+
+  // Prazo da fase atual
+  if(fase.tipo === 'analise_ri' && fase.prazo_vencimento) {
+    var d = diasUteisRestantes(fase.prazo_vencimento);
+    prs.push({
+      nome: 'Análise no RI' + (fase.ne_ref ? ' — pós ' + fase.ne_ref : ''),
+      venc: new Date(fase.prazo_vencimento + 'T12:00:00'),
+      dias: d, tipo: 'analise_ri'
+    });
+  }
+  if(fase.tipo === 'ne_aberta' && fase.prazo_vencimento) {
+    var d2 = diasUteisRestantes(fase.prazo_vencimento);
+    prs.push({
+      nome: 'Cumprir diligência — ' + (fase.ne_ref || 'NE'),
+      venc: new Date(fase.prazo_vencimento + 'T12:00:00'),
+      dias: d2, tipo: 'diligencia'
+    });
+  }
+  if(fase.tipo === 'emolumentos' && fase.prazo_vencimento) {
+    var d3 = diasUteisRestantes(fase.prazo_vencimento);
+    prs.push({
+      nome: 'Pagamento de emolumentos',
+      venc: new Date(fase.prazo_vencimento + 'T12:00:00'),
+      dias: d3, tipo: 'diligencia'
+    });
+  }
+  if(fase.tipo === 'analise_final' && fase.prazo_vencimento) {
+    var d4 = diasUteisRestantes(fase.prazo_vencimento);
+    prs.push({
+      nome: 'Análise final no RI (10 dias úteis)',
+      venc: new Date(fase.prazo_vencimento + 'T12:00:00'),
+      dias: d4, tipo: 'analise_ri'
+    });
+  }
+  if(fase.tipo === 'notificacao') {
+    // No deadline — just show as pending
+    prs.push({
+      nome: 'Aguardando notificação' + (fase.ne_ref ? ' — ' + fase.ne_ref : ''),
+      venc: null, dias: -1, tipo: 'notificacao', semPrazo: true
+    });
+  }
+
+  return prs;
+}
+
+// Legacy fallback (processes using old exigencias system directly)
+function getPrazosLegacy(p) {
+  var prs = [];
+  var exigs = (p.exigencias || []).slice().sort(function(a,b){
+    return (a.created_at||'').localeCompare(b.created_at||'');
+  });
+  var abertas = exigs.filter(function(e){ return !e.resolvida; });
+  var resolvidas = exigs.filter(function(e){ return e.resolvida; });
+  var temAberta = abertas.length > 0;
+
+  // Prenotação — informativo
   if(p.apresentacao) {
-    const v = addDiasUteis(p.apresentacao, 20);
-    prs.push({nome:'Prenotação (20 dias úteis)', venc:v, dias:diasUteis(v), tipo:'prenotacao'});
+    var vPren = addDiasUteis(p.apresentacao, 20);
+    prs.push({nome:'Prenotação (20 dias úteis)', venc:vPren, dias:diasUteis(vPren), tipo:'prenotacao'});
   }
 
-  // ── Análise RI inicial — apenas se NÃO há nenhuma exigência ainda ──
+  // Análise RI inicial — apenas sem exigências
   if(p.apresentacao && exigs.length === 0) {
-    const v = addDiasUteis(p.apresentacao, 10);
-    const d = diasUteis(v);
-    // Show even if vencido (d=0) so user knows
-    prs.push({nome:'Análise no RI (10 dias úteis)', venc:v, dias:d, tipo:'analise_ri'});
+    var vAnal = addDiasUteis(p.apresentacao, 10);
+    prs.push({nome:'Análise no RI (10 dias úteis)', venc:vAnal, dias:diasUteis(vAnal), tipo:'analise_ri'});
   }
 
-  // ── Diligência — prazo para cumprir NE aberta (sempre aparece, mesmo vencido) ──
+  // Diligência — NE aberta
   abertas.forEach(function(e) {
     if(e.prazo_diligencia) {
-      const d = diasUteis(e.prazo_diligencia);
       prs.push({
         nome:'Cumprir diligência — '+(e.nota_ref||'NE'),
         venc:new Date(e.prazo_diligencia+'T12:00:00'),
-        dias:d,
-        tipo:'diligencia',
-        exigId: e.id
+        dias:diasUteis(e.prazo_diligencia), tipo:'diligencia', exigId:e.id
       });
+    } else {
+      prs.push({nome:'NE em aberto — '+(e.nota_ref||'NE')+' (sem prazo)',
+        venc:null, dias:0, tipo:'diligencia', exigId:e.id, semPrazo:true});
     }
   });
 
-  // ── Análise RI pós-reingresso — 10 dias úteis após reingresso (sempre aparece) ──
-  resolvidas.forEach(function(e) {
-    if(e.novo_prazo_analise) {
-      const d = diasUteis(e.novo_prazo_analise);
+  // Análise RI pós-reingresso — APENAS se não tem NE aberta
+  if(!temAberta && resolvidas.length > 0) {
+    var ultima = resolvidas[resolvidas.length - 1];
+    if(ultima.novo_prazo_analise) {
       prs.push({
-        nome:'Análise no RI — pós '+(e.nota_ref||'NE'),
-        venc:new Date(e.novo_prazo_analise+'T12:00:00'),
-        dias:d,
-        tipo:'analise_ri'
+        nome:'Análise no RI — pós '+(ultima.nota_ref||'NE'),
+        venc:new Date(ultima.novo_prazo_analise+'T12:00:00'),
+        dias:diasUteis(ultima.novo_prazo_analise), tipo:'analise_ri'
       });
     }
-  });
+  }
 
   return prs;
+}
+
+function diasUteisRestantes(target) {
+  if(!target) return 0;
+  var d = typeof target === 'string' ? new Date(target+'T12:00:00') : new Date(target);
+  return diasUteis(d.toISOString().split('T')[0]);
+}
+
+// For alerts: exclude prenotacao informativo, include prenotacao_fatal
+function getPrazosAlertas(p) {
+  if(p.etapa === 'concluido') return [];
+  return getPrazosAtivos(p).filter(function(pr){
+    return pr.tipo !== 'prenotacao';
+  });
+}
+
+// Principal prazo for process list column
+function getPrazoPrincipal(p) {
+  if(p.etapa === 'concluido') return null;
+  var alertas = getPrazosAlertas(p);
+  if(!alertas.length) return null;
+  var dilig = alertas.filter(function(pr){ return pr.tipo==='diligencia'; });
+  var analise = alertas.filter(function(pr){ return pr.tipo==='analise_ri'; });
+  var fatal = alertas.filter(function(pr){ return pr.tipo==='prenotacao_fatal'; });
+  if(dilig.length) { dilig.sort(function(a,b){return a.dias-b.dias;}); return dilig[0]; }
+  if(analise.length) { analise.sort(function(a,b){return a.dias-b.dias;}); return analise[0]; }
+  if(fatal.length) return fatal[0];
+  return alertas[0];
+}
+
+// Prazos para ALERTAS (exclui prenotação, exclui concluído)
+function getPrazosAlertas(p) {
+  if(p.etapa === 'concluido') return [];
+  return getPrazos(p).filter(function(pr){
+    return pr.tipo !== 'prenotacao' && !pr.semPrazo;
+  });
+}
+
+// Prazos para ALERTAS incluindo NEs sem prazo definido (para lista de processos)
+function getPrazosAlertasAll(p) {
+  if(p.etapa === 'concluido') return [];
+  return getPrazos(p).filter(function(pr){ return pr.tipo !== 'prenotacao'; });
+}
+
+// Prazo principal para coluna da lista de processos
+function getPrazoPrincipal(p) {
+  if(p.etapa === 'concluido') return null;
+  var alertas = getPrazosAlertasAll(p);
+  if(!alertas.length) return null;
+  // Diligência tem prioridade absoluta sobre análise RI
+  var dilig = alertas.filter(function(pr){ return pr.tipo==='diligencia'; });
+  var analise = alertas.filter(function(pr){ return pr.tipo==='analise_ri'; });
+  if(dilig.length) {
+    // Most urgent diligencia
+    dilig.sort(function(a,b){ return a.dias-b.dias; });
+    return dilig[0];
+  }
+  if(analise.length) {
+    analise.sort(function(a,b){ return a.dias-b.dias; });
+    return analise[0];
+  }
+  return null;
 }
 
 // Prazos relevantes para ALERTAS:
@@ -1125,12 +1567,59 @@ function renderDetalhe() {
   const dc={done:'dot-done',active:'dot-active',exig:'dot-exig',pending:'dot-pend'};
   const saldo=(p.honorarios||0)-(p.recebido||0);
   document.getElementById('detalhe-content').innerHTML=`
-    <div class="detail-grid">
-      <div class="card" style="margin-bottom:0;">
-        <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Protocolo ONR</div><div class="mono" style="margin-bottom:10px;">${p.protocolo||'—'}</div>
-        <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Número interno</div><div class="mono" style="margin-bottom:10px;">${p.interno||'—'}</div>
-        <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Cartório</div><div style="font-size:13px;">${p.cartorio||'—'}</div>
-      </div>
+    ${function(){
+      var prots = (p.protocolos||[]).slice().sort(function(a,b){ return (a.ordem||0)-(b.ordem||0); });
+      if(!prots.length) {
+        return '<div class="detail-grid"><div class="card" style="margin-bottom:0;">'
+          +'<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Protocolo ONR</div><div class="mono" style="margin-bottom:10px;">'+(p.protocolo||'—')+'</div>'
+          +'<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Número interno</div><div class="mono" style="margin-bottom:10px;">'+(p.interno||'—')+'</div>'
+          +'<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Cartório</div><div style="font-size:13px;">'+(p.cartorio||'—')+'</div>'
+          +'<div style="margin-top:12px;"><button class="btn" onclick="abrirModalProtocolo(null)"><i class="ti ti-plus"></i> Adicionar protocolo</button></div>'
+          +'</div>';
+      }
+      var html = '<div style="margin-bottom:12px;">'
+        +'<div class="row-between" style="margin-bottom:8px;">'
+        +'<div style="font-size:13px;font-weight:500;color:var(--brand);">Protocolos</div>'
+        +'<button class="btn" onclick="abrirModalProtocolo(null)"><i class="ti ti-plus"></i> Novo protocolo</button>'
+        +'</div>';
+      prots.forEach(function(prot) {
+        var faseAtiva = getFaseAtiva(prot);
+        var prenotVenc = vencimentoPrenotacao(prot.apresentacao);
+        var prenotDias = prenotVenc ? diasUteis(prenotVenc.toISOString().split('T')[0]) : null;
+        var isCancelado = prot.status === 'cancelado';
+        html += '<div style="border:1px solid '+(isCancelado?'var(--border)':'var(--accent)')+';border-radius:var(--r);padding:10px 14px;margin-bottom:8px;background:'+(isCancelado?'var(--surface2)':'white')+'">'
+          +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">'
+          +'<div style="flex:1;">'
+          +'<span style="font-size:12px;font-weight:500;color:'+(isCancelado?'var(--text3)':'var(--brand)')+';">Prot. '+(prot.ordem||1)+(isCancelado?' — CANCELADO':' — ATIVO')+'</span>'
+          +'</div>'
+          +'<button class="btn" style="font-size:11px;padding:2px 8px;" data-action="edit-prot" data-id="'+prot.id+'"><i class="ti ti-edit" style="font-size:11px;"></i></button>'
+          +(faseAtiva&&!isCancelado ? '<button class="btn" style="font-size:11px;padding:2px 8px;" data-action="nova-fase" data-id="'+prot.id+'"><i class="ti ti-plus"></i> Nova fase</button>' : '')
+          +'</div>'
+          +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px;">'
+          +'<div><div style="color:var(--text2);font-size:10px;">ONR</div><div class="mono">'+(prot.numero_onr||'—')+'</div></div>'
+          +'<div><div style="color:var(--text2);font-size:10px;">INTERNO</div><div class="mono">'+(prot.numero_interno||'—')+'</div></div>'
+          +'<div><div style="color:var(--text2);font-size:10px;">APRESENTAÇÃO</div><div>'+(prot.apresentacao?fmtDate(prot.apresentacao):'—')+'</div></div>'
+          +'</div>'
+          +(prenotVenc && !isCancelado ? '<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;">'
+            +'<span style="font-size:11px;color:var(--text2);">Prenotação (prazo fatal):</span>'
+            +'<span style="font-size:12px;font-weight:500;color:'+(prenotDias<=0?'var(--danger)':prenotDias<=5?'var(--warning)':'var(--text)')+'">'
+            +fmtDate(prenotVenc)+(prenotDias<=0?' — Vencida':' — '+prenotDias+' dias')+'</span>'
+            +'</div>' : '')
+          +(isCancelado && prot.motivo_cancelamento ? '<div style="margin-top:6px;font-size:11px;color:var(--text3);">'+prot.motivo_cancelamento+'</div>' : '')
+          +(faseAtiva&&!isCancelado ? '<div style="margin-top:8px;padding:6px 10px;background:var(--surface2);border-radius:4px;font-size:12px;color:var(--text2);">'
+            +'Fase atual: <strong style="color:var(--text)">'+faseAtiva.tipo.replace('_',' ')+'</strong>'
+            +(faseAtiva.ne_ref?' — '+faseAtiva.ne_ref:'')
+            +'</div>' : '')
+          +(faseAtiva&&!isCancelado ? '<div style="margin-top:6px;display:flex;gap:6px;">'
+            +'<button class="btn" style="font-size:11px;" data-action="nova-fase" data-id="'+prot.id+'"><i class="ti ti-arrow-right"></i> Avançar fase</button>'
+            +'</div>' : '')
+          +'</div>';
+      });
+      html += '</div>';
+      return html + '<div class="detail-grid"><div class="card" style="margin-bottom:0;">'
+        +'<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Cartório</div><div style="font-size:13px;">'+(p.cartorio||'—')+'</div>'
+        +'</div>';
+    }()}
       <div class="card" style="margin-bottom:0;">
         <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Cliente</div><div style="font-size:13px;margin-bottom:10px;">${p.cliente}</div>
         <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Imóvel</div><div style="font-size:13px;margin-bottom:10px;">${p.imovel||'—'}</div>
@@ -1245,6 +1734,7 @@ function renderExigencia() {
           <div style="font-weight:500;font-size:13px;">${exig.nota_ref||'Nota de exigência '+(idx+1)} · Recebida em ${fmtDate(exig.recebimento)}</div>
           <div style="font-size:12px;color:var(--text2);margin-top:2px;">${exig.obs||''}</div>
         </div>
+        <button class="btn" style="font-size:11px;padding:3px 8px;flex-shrink:0;margin-left:8px;" onclick="editarNE('${exig.id}')"><i class="ti ti-edit" style="font-size:11px"></i> Editar</button>
         ${_dr?`<div style="text-align:right;flex-shrink:0;">
           <div style="font-size:11px;color:var(--text2);">Prazo reingresso</div>
           <div style="font-size:13px;font-weight:500;color:${diasR<=2?'var(--danger)':diasR<=5?'var(--warning)':'var(--text2)'};">${fmtDate(exig.data_reingresso)} · ${daysLabel(diasR)}</div>
@@ -1341,30 +1831,57 @@ function renderExigencia() {
 let _prazosFiltrados = [];
 let _prazosInfo = []; // prenotação
 
+function renderPrazoItem(p) {
+  var vencLabel = p.semPrazo ? 'Sem prazo' : (p.venc ? fmtDate(p.venc) : '—');
+  var diasLabel2 = p.semPrazo ? 'Sem prazo' : daysLabel(p.dias);
+  return '<div class="prazo-item '+pCls(p.dias,p.tipo)+'">'
+    +pIcon(p.dias,p.tipo)
+    +'<div style="flex:1"><div class="pname">'+p.nome+'</div>'
+    +'<div class="psub">'+p.proc.cliente+' · '+(p.proc.protocolo||'—')+(p.semPrazo?'':' · Vence '+vencLabel)+'</div></div>'
+    +(p.semPrazo?'<span style="font-size:12px;color:var(--text3)">Sem prazo</span>':'<span class="pdays '+dCls(p.dias,p.tipo)+'">'+diasLabel2+'</span>')
+    +'<button class="btn" data-action="abrir-proc" data-id="'+p.proc.id+'">Abrir</button>'
+    +'</div>';
+}
+
 function renderListaPrazos(filtro) {
-  const lista = filtro==='v2' ? _prazosFiltrados.filter(function(p){return p.dias<=2;})
-    : filtro==='v5' ? _prazosFiltrados.filter(function(p){return p.dias>2&&p.dias<=5;})
-    : filtro==='v10' ? _prazosFiltrados.filter(function(p){return p.dias>5&&p.dias<=10;})
-    : _prazosFiltrados;
+  var diligencias = _prazosFiltrados.filter(function(p){ return p.tipo==='diligencia'; });
+  var analises = _prazosFiltrados.filter(function(p){ return p.tipo==='analise_ri'; });
+
+  function applyFiltro(lista) {
+    if(filtro==='v2') return lista.filter(function(p){ return p.dias<=2; });
+    if(filtro==='v5') return lista.filter(function(p){ return p.dias>2&&p.dias<=5; });
+    if(filtro==='v10') return lista.filter(function(p){ return p.dias>5&&p.dias<=10; });
+    return lista;
+  }
+
+  var diligFilt = applyFiltro(diligencias);
+  var analiseFilt = applyFiltro(analises);
+
   const el = document.getElementById('lista-prazos');
   if(!el) return;
-  el.innerHTML = lista.length ? lista.map(function(p){
-    var tipoBadge = p.tipo==='analise_ri'
-      ? '<span class="badge b-info" style="font-size:10px;margin-left:6px;">Análise RI</span>'
-      : p.tipo==='diligencia'
-      ? '<span class="badge b-warn" style="font-size:10px;margin-left:6px;">Diligência</span>'
-      : '';
-    return '<div class="prazo-item '+pCls(p.dias,p.tipo)+'">'+pIcon(p.dias,p.tipo)
-      +'<div style="flex:1"><div class="pname">'+p.nome+tipoBadge+'</div>'
-      +'<div class="psub">'+p.proc.cliente+' · '+(p.proc.protocolo||'—')+' · Vence '+fmtDate(p.venc)+'</div></div>'
-      +'<span class="pdays '+dCls(p.dias,p.tipo)+'">'+daysLabel(p.dias)+'</span>'
-      +'<button class="btn" data-action="abrir-proc" data-id="'+p.proc.id+'">Abrir</button>'
-      +'</div>';
-  }).join('') : '<div class="empty"><i class="ti ti-circle-check"></i>Nenhum prazo neste filtro</div>';
-  document.querySelectorAll('.metric-prazo').forEach(function(el){ el.style.outline='none'; });
+
+  var html = '';
+
+  // Section 1: Diligências (NEs a cumprir)
+  html += '<div style="font-size:11px;font-weight:500;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em;">Diligências — NEs a cumprir</div>';
+  if(diligFilt.length) {
+    html += diligFilt.map(renderPrazoItem).join('');
+  } else {
+    html += '<div style="font-size:13px;color:var(--text3);padding:10px 0;margin-bottom:8px;">Nenhuma diligência pendente</div>';
+  }
+
+  // Section 2: Análise RI
+  html += '<div style="font-size:11px;font-weight:500;color:var(--text2);margin:16px 0 8px;text-transform:uppercase;letter-spacing:0.05em;">Análise no RI</div>';
+  if(analiseFilt.length) {
+    html += analiseFilt.map(renderPrazoItem).join('');
+  } else {
+    html += '<div style="font-size:13px;color:var(--text3);padding:10px 0;">Nenhuma análise RI pendente</div>';
+  }
+
+  el.innerHTML = html;
+  document.querySelectorAll('.metric-prazo').forEach(function(m){ m.style.outline='none'; });
   var sel = document.getElementById('metric-prazo-'+filtro);
   if(sel) sel.style.outline='2px solid var(--accent)';
-  // Re-attach event delegation after innerHTML rebuild
   if(el) el.onclick = function(e){ var btn=e.target.closest('[data-action="abrir-proc"]'); if(btn) abrirDetalhe(btn.dataset.id); };
 }
 
