@@ -802,6 +802,33 @@ async function salvarProtocolo() {
     ({error} = await sb.from('protocolos').insert(obj));
   }
   if(error){ toast('Erro: '+error.message); return; }
+  var protId = null;
+  if(!_editProtocoloId) {
+    // Get the newly created protocolo id
+    var {data: newProt} = await sb.from('protocolos')
+      .select('id')
+      .eq('processo_id', activeProc.id)
+      .eq('numero_onr', obj.numero_onr || '')
+      .order('created_at', {ascending: false})
+      .limit(1);
+    if(newProt && newProt[0]) protId = newProt[0].id;
+  }
+
+  // Auto-create analise_ri fase for new active protocol
+  if(protId && obj.status === 'ativo' && obj.apresentacao) {
+    var vencRI = addDiasUteis(obj.apresentacao, 10);
+    await sb.from('fases').insert({
+      protocolo_id: protId,
+      processo_id: activeProc.id,
+      user_id: currentUser.id,
+      tipo: 'analise_ri',
+      status: 'ativo',
+      prazo_inicio: obj.apresentacao,
+      prazo_vencimento: dateToStr(vencRI),
+      ne_ref: null
+    });
+  }
+
   toast(_editProtocoloId ? 'Protocolo atualizado!' : 'Novo protocolo adicionado!');
   fecharModal('modal-protocolo');
   processos = []; await load();
@@ -1173,10 +1200,12 @@ function isDiaUtil(d) {
 }
 
 function addDiasUteis(start, n) {
-  // Starts counting from the NEXT business day after start
-  let d = new Date(start);
-  d.setHours(0,0,0,0);
-  let count = 0;
+  // Parse date safely avoiding timezone offset
+  var s = (typeof start === 'string') ? start.replace(/T.*/, '') : start.toISOString().split('T')[0];
+  var parts = s.split('-');
+  var d = new Date(parseInt(parts[0]), parseInt(parts[1])-1, parseInt(parts[2]));
+  d.setHours(12,0,0,0);
+  var count = 0;
   while(count < n) {
     d.setDate(d.getDate()+1);
     if(isDiaUtil(d)) count++;
@@ -1185,14 +1214,23 @@ function addDiasUteis(start, n) {
 }
 
 function diasUteis(target) {
-  const t = new Date(target); t.setHours(0,0,0,0);
-  const today = new Date(); today.setHours(0,0,0,0);
+  if(!target) return 0;
+  var s = (typeof target === 'string') ? target.replace(/T.*/, '') : target.toISOString().split('T')[0];
+  var parts = s.split('-');
+  var t = new Date(parseInt(parts[0]), parseInt(parts[1])-1, parseInt(parts[2]));
+  t.setHours(12,0,0,0);
+  var today = new Date(); today.setHours(0,0,0,0);
   if(t <= today) return 0;
-  let d = new Date(today); let count = 0;
+  var d = new Date(today); var count = 0;
   while(d < t) { d.setDate(d.getDate()+1); if(isDiaUtil(d)) count++; }
   return count;
 }
-function fmtDate(d){return new Date(d).toLocaleDateString('pt-BR');}
+function fmtDate(d){
+  if(!d) return '—';
+  var s = (typeof d === 'string') ? d.replace(/T.*/, '') : d.toISOString().split('T')[0];
+  var parts = s.split('-');
+  return parts[2]+'/'+parts[1]+'/'+parts[0];
+}
 function daysLabel(n){return n===0?'Vencido':n+' dia'+(n!==1?'s':'')+' útei'+(n!==1?'s':'l');}
 function pCls(n, tipo){
   if(tipo==='prenotacao') return '';
@@ -1240,9 +1278,17 @@ function getFaseAtiva(protocolo) {
 // Prenotação: 20 dias CORRIDOS (não úteis) a partir da data de apresentação
 function vencimentoPrenotacao(apresentacao) {
   if(!apresentacao) return null;
-  var d = new Date(apresentacao + 'T12:00:00');
+  var s = apresentacao.replace(/T.*/, '');
+  var parts = s.split('-');
+  var d = new Date(parseInt(parts[0]), parseInt(parts[1])-1, parseInt(parts[2]));
+  d.setHours(12,0,0,0);
   d.setDate(d.getDate() + 20);
   return d;
+}
+
+function dateToStr(d) {
+  if(!d) return null;
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
 
 // Retorna os prazos ATIVOS do processo (para alertas e listagem)
@@ -1263,19 +1309,28 @@ function getPrazosAtivos(p) {
 function getPrazosDeProtocolo(p, prot) {
   var prs = [];
   var fase = getFaseAtiva(prot);
-  if(!fase) return [];
 
-  // Prenotação do protocolo ativo — prazo fatal sempre visível
+  // Always show prenotacao as prazo fatal
   var prenotVenc = vencimentoPrenotacao(prot.apresentacao);
   if(prenotVenc) {
-    var prenotDias = diasUteisRestantes(prenotVenc);
+    var prenotDias = diasUteis(dateToStr(prenotVenc));
     prs.push({
       nome: 'Prenotação — prazo fatal (Prot. ' + (prot.ordem||1) + ')',
-      venc: prenotVenc,
-      dias: prenotDias,
-      tipo: 'prenotacao_fatal',
-      isFatal: true
+      venc: prenotVenc, dias: prenotDias,
+      tipo: 'prenotacao_fatal', isFatal: true
     });
+  }
+
+  if(!fase) {
+    // No active fase - if protocol is active, show pending analise_ri
+    if(prot.status === 'ativo' && prot.apresentacao) {
+      var vRI = addDiasUteis(prot.apresentacao, 10);
+      prs.push({
+        nome: 'Análise no RI (10 dias úteis)',
+        venc: vRI, dias: diasUteis(dateToStr(vRI)), tipo: 'analise_ri'
+      });
+    }
+    return prs;
   }
 
   // Prazo da fase atual
@@ -1353,7 +1408,7 @@ function getPrazosLegacy(p) {
         dias:diasUteis(e.prazo_diligencia), tipo:'diligencia', exigId:e.id
       });
     } else {
-      prs.push({nome:'NE em aberto — '+(e.nota_ref||'NE')+' (sem prazo)',
+      prs.push({nome:'NE em aberto — '+(e.nota_ref||'NE'),
         venc:null, dias:0, tipo:'diligencia', exigId:e.id, semPrazo:true});
     }
   });
@@ -1375,8 +1430,8 @@ function getPrazosLegacy(p) {
 
 function diasUteisRestantes(target) {
   if(!target) return 0;
-  var d = typeof target === 'string' ? new Date(target+'T12:00:00') : new Date(target);
-  return diasUteis(d.toISOString().split('T')[0]);
+  if(typeof target === 'string') return diasUteis(target.replace(/T.*/,''));
+  return diasUteis(dateToStr(target));
 }
 
 // For alerts: exclude prenotacao informativo, include prenotacao_fatal
@@ -1832,7 +1887,7 @@ let _prazosFiltrados = [];
 let _prazosInfo = []; // prenotação
 
 function renderPrazoItem(p) {
-  var vencLabel = p.semPrazo ? 'Sem prazo' : (p.venc ? fmtDate(p.venc) : '—');
+  var vencLabel = p.semPrazo ? '' : (p.venc ? fmtDate(p.venc) : '—');
   var diasLabel2 = p.semPrazo ? 'Sem prazo' : daysLabel(p.dias);
   return '<div class="prazo-item '+pCls(p.dias,p.tipo)+'">'
     +pIcon(p.dias,p.tipo)
