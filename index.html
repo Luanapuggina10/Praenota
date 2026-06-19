@@ -1319,7 +1319,29 @@ function getPrazosDeProtocolo(p, prot) {
   }
 
   if(!fase) {
-    // No active fase - if protocol is active, show pending analise_ri
+    // Check for open NE (legacy exigencias) - suppresses analise_ri
+    var exigsAbertasCheck = (p.exigencias||[]).filter(function(e){ return !e.resolvida; });
+    if(exigsAbertasCheck.length > 0) {
+      // Show diligencia instead of analise_ri
+      exigsAbertasCheck.forEach(function(e) {
+        if(e.prazo_diligencia) {
+          prs.push({
+            nome: 'Cumprir diligência — '+(e.nota_ref||'NE'),
+            venc: new Date(e.prazo_diligencia+'T12:00:00'),
+            dias: diasUteis(e.prazo_diligencia),
+            tipo: 'diligencia', exigId: e.id
+          });
+        } else {
+          prs.push({
+            nome: 'NE em aberto — '+(e.nota_ref||'NE'),
+            venc: null, dias: 0, tipo: 'diligencia',
+            exigId: e.id, semPrazo: true
+          });
+        }
+      });
+      return prs;
+    }
+    // No active fase, no open NE - if protocol is active, show pending analise_ri
     if(prot.status === 'ativo' && prot.apresentacao) {
       var vRI = addDiasUteis(prot.apresentacao, 10);
       prs.push({
