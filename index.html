@@ -180,22 +180,34 @@
     .proc-tipo{font-size:11px;color:var(--text3);margin-top:1px;}
     .section-label{font-size:11px;font-weight:500;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em;}
 
-    /* PROTOCOLO CARD — novo layout 2 colunas */
-    .prot-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px;}
-    .prot-card{border-radius:var(--r);border:1px solid var(--accent);background:white;padding:0;overflow:hidden;}
-    .prot-card.cancelado{border-color:var(--border);background:var(--surface2);}
-    .prot-head{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);}
-    .prot-head-title{flex:1;font-size:12px;font-weight:600;letter-spacing:0.02em;}
-    .prot-body{display:grid;grid-template-columns:1fr 1fr;gap:0;}
-    .prot-col{padding:12px 14px;}
-    .prot-col + .prot-col{border-left:1px solid var(--border);}
+    /* PROTOCOLO CARD — card único de protocolo(s), colunas lado a lado quando há mais de um */
+    .prot-cards-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0;}
+    .prot-cards-row > .prot-col-item{padding:12px 14px;}
+    .prot-cards-row > .prot-col-item + .prot-col-item{border-left:1px solid var(--border);}
+    .prot-col-head{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+    .prot-col-head-title{flex:1;font-size:12px;font-weight:600;letter-spacing:0.02em;}
     .prot-field{margin-bottom:9px;}
     .prot-field:last-child{margin-bottom:0;}
     .prot-field-label{font-size:10px;color:var(--text2);letter-spacing:0.03em;margin-bottom:2px;}
     .prot-field-value{font-size:13px;color:var(--text);}
-    .prot-prenot{padding:10px 14px;border-top:1px solid var(--border);background:var(--surface2);display:flex;align-items:center;gap:8px;}
-    .prot-fase{padding:10px 14px;border-top:1px solid var(--border);background:var(--accent-light);font-size:12px;color:var(--text2);}
-    .prot-actions{padding:8px 14px;border-top:1px solid var(--border);display:flex;gap:6px;}
+    .prot-prenot{padding:9px 0 0;margin-top:9px;border-top:1px solid var(--border);display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+    .prot-cancel-motivo{padding:9px 0 0;margin-top:9px;border-top:1px solid var(--border);font-size:11px;color:var(--text3);}
+    .prot-col-item.cancelado .prot-col-head-title{color:var(--text3);}
+
+    /* Card com altura máxima + scroll interno (Prazos / Linha do tempo) */
+    .card-scroll{max-height:340px;overflow-y:auto;}
+    .card-scroll::-webkit-scrollbar{width:6px;}
+    .card-scroll::-webkit-scrollbar-thumb{background:var(--border-med);border-radius:3px;}
+
+    /* Fase Notificação — cor própria (lilás) */
+    .pi-notif{border-color:#d3c3ea;background:#f5f0fb;}
+    .pd-notif{color:#6b3fa0;}
+    .b-notif{background:#f0e8fa;color:#6b3fa0;}
+    .dot-notif{background:#8a5cc7;}
+
+    /* Setor de Ofício card */
+    .oficio-card{border:1px solid var(--border-med);border-radius:var(--r);padding:14px;margin-bottom:10px;background:#fbf9fd;}
+    .oficio-card.vencido{border-color:#d3c3ea;}
   </style>
 </head>
 <body>
@@ -462,6 +474,43 @@
   </div>
 </div>
 
+<!-- MODAL SETOR DE OFÍCIO -->
+<div class="modal-bg" id="modal-oficio">
+  <div class="modal">
+    <div class="modal-title" id="modal-oficio-title">Novo registro — Setor de Ofício</div>
+    <div class="form-grid" style="margin-bottom:1rem;">
+      <div class="field"><label>Data de recebimento</label><input type="date" id="oficio-recebimento"></div>
+      <div class="field"><label>Número da nota / ref. ofício</label><input type="text" id="oficio-nota" placeholder="Ex: OF-2026-014"></div>
+      <div class="field"><label>Prazo para cumprir (manual)</label><input type="date" id="oficio-prazo-cumprir"></div>
+      <div class="field full"><label>Observações</label><textarea id="oficio-obs" rows="3" placeholder="Descreva o teor da exigência do Setor de Ofício..."></textarea></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn" onclick="fecharModal('modal-oficio')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarOficio()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL REINGRESSO SETOR DE OFÍCIO -->
+<div class="modal-bg" id="modal-oficio-reingresso">
+  <div class="modal" style="width:420px;">
+    <div class="modal-title" id="modal-oficio-reingresso-title">Registrar reingresso — Setor de Ofício</div>
+    <div class="form-grid" style="margin-bottom:1rem;">
+      <div class="field"><label>Data do reingresso</label><input type="date" id="oficio-reingresso-data"></div>
+      <div class="field"><label>Prazo de retorno do cartório (manual)</label><input type="date" id="oficio-prazo-retorno"></div>
+    </div>
+    <div class="alert alert-warn" style="margin-bottom:1rem;">
+      <i class="ti ti-clock" style="font-size:16px;flex-shrink:0;"></i>
+      <div>Nesta fase os prazos são definidos caso a caso, não há contagem automática de dias úteis.</div>
+    </div>
+    <div class="form-actions">
+      <button class="btn" onclick="fecharModal('modal-oficio-reingresso')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-confirmar-oficio-reingresso" onclick="confirmarOficioReingresso()">Confirmar reingresso</button>
+    </div>
+  </div>
+</div>
+
+
 <!-- MODAL NOVO/EDITAR PROTOCOLO -->
 <div class="modal-bg" id="modal-protocolo">
   <div class="modal" style="width:480px;">
@@ -573,13 +622,14 @@ window.addEventListener('load', initApp);
 
 async function load() {
   try {
-    const {data,error}=await sb.from('processos').select('*, exigencias(*, exigencia_itens(*)), checklist_docs(*), parcelas(*), protocolos(*, fases(*))').eq('user_id',currentUser.id).order('created_at',{ascending:false});
+    const {data,error}=await sb.from('processos').select('*, exigencias(*, exigencia_itens(*)), checklist_docs(*), parcelas(*), protocolos(*, fases(*)), oficios(*, oficio_itens(*))').eq('user_id',currentUser.id).order('created_at',{ascending:false});
     if(error){console.error('Erro load:',error);return;}
     if(data){
       // flatten exigencia_itens into top level for compatibility
       processos = data.map(p => ({
         ...p,
-        exigencia_itens: p.exigencias ? p.exigencias.flatMap(e => e.exigencia_itens || []) : []
+        exigencia_itens: p.exigencias ? p.exigencias.flatMap(e => e.exigencia_itens || []) : [],
+        oficio_itens: p.oficios ? p.oficios.flatMap(o => o.oficio_itens || []) : []
       }));
     }
   } catch(e){console.error('Erro load catch:',e);}
@@ -981,30 +1031,145 @@ async function deletarExigencia(id) {
   await load();
   activeProc = processos.find(p=>p.id===activeProc.id);
   renderExigencia();
-  // Event delegation for protocolo/fase buttons in detalhe
-  var dc = document.getElementById('detalhe-content');
-  if(dc) {
-    dc.onclick = function(e){
-      var btn = e.target.closest('[data-action]');
-      if(!btn) return;
-      var action = btn.dataset.action, id = btn.dataset.id;
-      if(action==='edit-prot') abrirModalProtocolo(id);
-      else if(action==='nova-fase') abrirModalFase(id);
-    };
+}
+
+// ── SETOR DE OFÍCIO (fase Notificação) ──────────────────────────────────────
+window._rpPerOficio = {};
+
+function abrirModalOficio() {
+  window._editOficioId = null;
+  document.getElementById('modal-oficio-title').textContent = 'Novo registro — Setor de Ofício';
+  document.querySelector('#modal-oficio .btn-primary').textContent = 'Salvar';
+  document.getElementById('oficio-recebimento').value = new Date().toISOString().split('T')[0];
+  document.getElementById('oficio-nota').value = '';
+  document.getElementById('oficio-prazo-cumprir').value = '';
+  document.getElementById('oficio-obs').value = '';
+  document.getElementById('modal-oficio').classList.add('open');
+}
+
+function editarOficio(oficioId) {
+  var of = (activeProc.oficios||[]).find(function(o){ return o.id===oficioId; });
+  if(!of) return;
+  window._editOficioId = oficioId;
+  document.getElementById('modal-oficio-title').textContent = 'Editar registro — Setor de Ofício';
+  document.querySelector('#modal-oficio .btn-primary').textContent = 'Salvar alterações';
+  document.getElementById('oficio-recebimento').value = of.recebimento||'';
+  document.getElementById('oficio-nota').value = of.nota_ref||'';
+  document.getElementById('oficio-prazo-cumprir').value = of.prazo_cumprir||'';
+  document.getElementById('oficio-obs').value = of.obs||'';
+  document.getElementById('modal-oficio').classList.add('open');
+}
+
+async function salvarOficio() {
+  if(!activeProc) return;
+  var protAtivo = getProtocoloAtivo(activeProc);
+  var obj = {
+    recebimento: document.getElementById('oficio-recebimento').value||null,
+    nota_ref: document.getElementById('oficio-nota').value||null,
+    prazo_cumprir: document.getElementById('oficio-prazo-cumprir').value||null,
+    obs: document.getElementById('oficio-obs').value||null
+  };
+  var error;
+  if(window._editOficioId) {
+    ({error} = await sb.from('oficios').update(obj).eq('id', window._editOficioId));
+  } else {
+    ({error} = await sb.from('oficios').insert(Object.assign({}, obj, {
+      processo_id: activeProc.id,
+      protocolo_id: protAtivo ? protAtivo.id : null,
+      user_id: currentUser.id
+    })));
   }
-  // Update concluir button based on etapa
-  const btnC = document.getElementById('btn-concluir');
-  if(btnC) {
-    if(activeProc.etapa==='concluido') {
-      btnC.innerHTML='<i class="ti ti-refresh"></i> Reabrir processo';
-      btnC.style.color='var(--text2)';
-      btnC.style.borderColor='var(--border-med)';
-    } else {
-      btnC.innerHTML='<i class="ti ti-circle-check"></i> Concluir registro';
-      btnC.style.color='var(--success)';
-      btnC.style.borderColor='#9ad0b8';
-    }
+  if(error){ toast('Erro: '+error.message); return; }
+  toast(window._editOficioId ? 'Registro atualizado!' : 'Registro do Setor de Ofício salvo!');
+  window._editOficioId = null;
+  fecharModal('modal-oficio');
+  await load(); activeProc=processos.find(function(p){return p.id===activeProc.id;}); renderDetalhe();
+}
+
+async function deletarOficio(id) {
+  if(!confirm('Excluir este registro do Setor de Of\u00edcio? Esta a\u00e7\u00e3o n\u00e3o pode ser desfeita.')) return;
+  const {error} = await sb.from('oficios').delete().eq('id', id);
+  if(error){toast('Erro: '+error.message); return;}
+  toast('Registro exclu\u00eddo.');
+  await load();
+  activeProc = processos.find(p=>p.id===activeProc.id);
+  renderDetalhe();
+}
+
+async function toggleOficioItem(id,done) {
+  await sb.from('oficio_itens').update({done}).eq('id',id);
+  await load(); activeProc=processos.find(p=>p.id===activeProc.id); renderDetalhe();
+}
+
+function selRpForOficio(oficioId, k, val, cls) {
+  ['eu','cli','ter','car'].forEach(function(x){ var el=document.getElementById('orp-'+x+'-'+oficioId); if(el) el.className='rp'; });
+  var el=document.getElementById('orp-'+k+'-'+oficioId); if(el) el.classList.add('s-'+k);
+  window._rpPerOficio[oficioId]={val:val, cls:cls};
+  var c=document.getElementById('orp-custom-'+oficioId); if(c) c.style.display=k==='ter'?'inline-block':'none';
+}
+
+async function addOficioItemTo(oficioId) {
+  var inp=document.getElementById('oficio-new-text-'+oficioId);
+  var txt=inp?inp.value.trim():''; if(!txt) return;
+  var rp=window._rpPerOficio[oficioId]||{val:'',cls:''};
+  var customEl=document.getElementById('orp-custom-'+oficioId);
+  var resp=rp.val, rclass=rp.cls;
+  if(rp.val==='Terceiro' && customEl && customEl.value.trim()){ resp=customEl.value.trim(); }
+  await sb.from('oficio_itens').insert({oficio_id:oficioId,user_id:currentUser.id,texto:txt,responsavel:resp,resp_class:rclass,done:false});
+  inp.value=''; if(customEl) customEl.value='';
+  window._rpPerOficio[oficioId]={val:'',cls:''};
+  await load(); activeProc=processos.find(function(p){return p.id===activeProc.id;}); renderDetalhe();
+}
+
+let _oficioReingressoId = null;
+function abrirModalOficioReingresso(oficioId) {
+  _oficioReingressoId = oficioId;
+  document.getElementById('oficio-reingresso-data').value = new Date().toISOString().split('T')[0];
+  document.getElementById('oficio-prazo-retorno').value = '';
+  document.getElementById('modal-oficio-reingresso').classList.add('open');
+}
+
+async function confirmarOficioReingresso() {
+  var data = document.getElementById('oficio-reingresso-data').value;
+  var prazoRetorno = document.getElementById('oficio-prazo-retorno').value;
+  if(!data){ toast('Informe a data do reingresso.'); return; }
+  var {error} = await sb.from('oficios').update({
+    resolvida: true,
+    data_reingresso_realizado: data,
+    prazo_retorno_cartorio: prazoRetorno||null
+  }).eq('id', _oficioReingressoId);
+  if(error){ toast('Erro: '+error.message); return; }
+  toast('Reingresso registrado!');
+  fecharModal('modal-oficio-reingresso');
+  await load(); activeProc=processos.find(function(p){return p.id===activeProc.id;}); renderDetalhe();
+}
+
+// Concluir Análise RI + Prenotação → abrir fase de Notificação
+async function abrirFaseNotificacao(protocoloId) {
+  if(!activeProc) return;
+  if(!confirm('Confirma a conclusão da análise registral e da prenotação deste protocolo? Isso abrirá a fase de Notificação, com prazos definidos manualmente.')) return;
+  var prot = (activeProc.protocolos||[]).find(function(p){ return p.id===protocoloId; });
+  if(!prot) return;
+  var hoje = new Date().toISOString().split('T')[0];
+  // Conclude active fase(s) of this protocol
+  var fasesAtivas = (prot.fases||[]).filter(function(f){ return f.status==='ativo'; });
+  for(var i=0;i<fasesAtivas.length;i++) {
+    await sb.from('fases').update({status:'concluido', data_conclusao:hoje}).eq('id', fasesAtivas[i].id);
   }
+  // Open new fase 'notificacao' — no fixed deadline
+  await sb.from('fases').insert({
+    protocolo_id: protocoloId,
+    processo_id: activeProc.id,
+    user_id: currentUser.id,
+    tipo: 'notificacao',
+    status: 'ativo',
+    prazo_inicio: hoje,
+    prazo_vencimento: null,
+    ne_ref: null
+  });
+  await sb.from('processos').update({etapa:'notificacao'}).eq('id', activeProc.id);
+  toast('Fase de Notificação aberta. Prazos agora são definidos manualmente.');
+  await load(); activeProc=processos.find(function(p){return p.id===activeProc.id;}); renderDetalhe();
 }
 
 async function deletarProcesso(id) {
@@ -1044,6 +1209,8 @@ document.getElementById('modal-exig').addEventListener('click',function(e){if(e.
 document.getElementById('modal-edit').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-edit');});
 document.getElementById('modal-parcela').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-parcela');});
 document.getElementById('modal-reingresso').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-reingresso');});
+document.getElementById('modal-oficio').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-oficio');});
+document.getElementById('modal-oficio-reingresso').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-oficio-reingresso');});
 
 function selRp(k,val,cls) {
   ['eu','cli','ter','car'].forEach(x=>{const el=document.getElementById('rp-'+x);if(el)el.className='rp';});
@@ -1253,17 +1420,20 @@ function fmtDate(d){
 function daysLabel(n){return n===0?'Vencido':n+' dia'+(n!==1?'s':'')+' útei'+(n!==1?'s':'l');}
 function pCls(n, tipo){
   if(tipo==='prenotacao') return '';
+  if(tipo==='notificacao') return 'pi-notif';
   if(n === 0) return 'pi-danger';
   return n<=2?'pi-danger':n<=5?'pi-warning':'';
 }
 function dCls(n, tipo){
-  if(n === 0) return 'pd-vencido';
+  if(n === 0 && tipo!=='notificacao') return 'pd-vencido';
   if(tipo==='prenotacao') return 'pd-ok';
+  if(tipo==='notificacao') return 'pd-notif';
   if(tipo==='analise_ri') return n<=2?'pd-danger':n<=5?'pd-warning':'pd-info';
   return n<=2?'pd-danger':n<=5?'pd-warning':'pd-ok';
 }
 function pIcon(n, tipo){
   if(tipo==='prenotacao') return '<i class="ti ti-info-circle" style="font-size:16px;color:var(--text3);"></i>';
+  if(tipo==='notificacao') return '<i class="ti ti-bell" style="font-size:16px;color:#6b3fa0;"></i>';
   if(n===0) return '<i class="ti ti-alert-circle" style="font-size:16px;color:var(--danger);"></i>';
   if(tipo==='analise_ri') {
     const c = n<=2?'var(--danger)':n<=5?'var(--warning)':'var(--info)';
@@ -1408,10 +1578,37 @@ function getPrazosDeProtocolo(p, prot) {
     });
   }
   if(fase.tipo === 'notificacao') {
-    // No deadline — just show as pending
-    prs.push({
-      nome: 'Aguardando notificação' + (fase.ne_ref ? ' — ' + fase.ne_ref : ''),
-      venc: null, dias: -1, tipo: 'notificacao', semPrazo: true
+    // Fase pós-análise: prazos manuais via Setor de Ofício (oficios em aberto)
+    var oficiosAbertos = (p.oficios||[]).filter(function(o){ return o.protocolo_id===prot.id && !o.resolvida; });
+    var oficiosResolvidosAguardandoRetorno = (p.oficios||[]).filter(function(o){
+      return o.protocolo_id===prot.id && o.resolvida && o.prazo_retorno_cartorio;
+    });
+    if(!oficiosAbertos.length && !oficiosResolvidosAguardandoRetorno.length) {
+      prs.push({
+        nome: 'Notificação — aguardando retorno do cartório',
+        venc: null, dias: -1, tipo: 'notificacao', semPrazo: true
+      });
+    }
+    oficiosAbertos.forEach(function(o) {
+      if(o.prazo_cumprir) {
+        prs.push({
+          nome: 'Setor de Ofício — cumprir ' + (o.nota_ref||''),
+          venc: new Date(o.prazo_cumprir+'T12:00:00'),
+          dias: diasUteis(o.prazo_cumprir), tipo: 'notificacao', oficioId: o.id
+        });
+      } else {
+        prs.push({
+          nome: 'Setor de Ofício — '+(o.nota_ref||'sem prazo definido'),
+          venc: null, dias: 0, tipo: 'notificacao', oficioId: o.id, semPrazo: true
+        });
+      }
+    });
+    oficiosResolvidosAguardandoRetorno.forEach(function(o) {
+      prs.push({
+        nome: 'Setor de Ofício — retorno do cartório ' + (o.nota_ref||''),
+        venc: new Date(o.prazo_retorno_cartorio+'T12:00:00'),
+        dias: diasUteis(o.prazo_retorno_cartorio), tipo: 'notificacao', oficioId: o.id
+      });
     });
   }
 
@@ -1563,20 +1760,27 @@ function getPrazoPrincipal(p) {
   if(p.etapa === 'concluido') return null;
   var alertas = getPrazosAlertas(p);
   if(!alertas.length) return null;
-  // Priority: diligencia first, then analise_ri, sorted by urgency
+  // Priority: diligencia first, then analise_ri, then notificacao, sorted by urgency
   var dilig = alertas.filter(function(pr){ return pr.tipo==='diligencia'; });
   var analise = alertas.filter(function(pr){ return pr.tipo==='analise_ri'; });
+  var notif = alertas.filter(function(pr){ return pr.tipo==='notificacao' && !pr.semPrazo; });
   // Most urgent first (lowest dias)
   var all = dilig.concat(analise).sort(function(a,b){ return a.dias - b.dias; });
-  return all[0] || null;
+  if(all.length) return all[0];
+  if(notif.length) { notif.sort(function(a,b){ return a.dias-b.dias; }); return notif[0]; }
+  return null;
 }
 
 function etapaInfo(p) {
   const exigs = p.exigencias || [];
+  const oficiosAbertos = (p.oficios||[]).filter(function(o){ return !o.resolvida; });
   const temAberta = exigs.some(function(e){ return !e.resolvida; });
   const temResolvida = exigs.some(function(e){ return e.resolvida; });
-  
+
   if(p.etapa === 'concluido') return ['b-success','Concluído'];
+  if(p.etapa === 'notificacao') {
+    return oficiosAbertos.length ? ['b-notif','Setor de Ofício'] : ['b-notif','Notificação'];
+  }
   if(temAberta) return ['b-warn','Exigência aberta'];
   if(p.etapa === 'reingresso' || temResolvida) return ['b-info','Análise no RI'];
   if(p.etapa === 'analise' || p.etapa === 'analise_reg') return ['b-info','Análise no RI'];
@@ -1677,103 +1881,105 @@ function renderDetalhe() {
     }
   });
 
+  // Notificação — fase pós-análise, com Setor de Ofício (prazos manuais)
+  var protAtivoTl = getProtocoloAtivo(p);
+  var temFaseNotificacao = protAtivoTl && (protAtivoTl.fases||[]).some(function(f){ return f.tipo==='notificacao'; });
+  if(temFaseNotificacao) {
+    var faseNotifAtiva = protAtivoTl.fases.find(function(f){ return f.tipo==='notificacao' && f.status==='ativo'; });
+    etapas.push({lbl:'Análise registral concluída — abertura de Notificação', dt:faseNotifAtiva?fmtDate(faseNotifAtiva.prazo_inicio):null, e:'done'});
+    var oficiosOrdenados = (p.oficios||[]).slice().sort(function(a,b){ return (a.created_at||'').localeCompare(b.created_at||''); });
+    oficiosOrdenados.forEach(function(o) {
+      if(o.resolvida) {
+        etapas.push({lbl:'Setor de Ofício '+(o.nota_ref||'')+' — cumprido', dt:o.data_reingresso_realizado?fmtDate(o.data_reingresso_realizado):null, e:'done'});
+      } else {
+        etapas.push({lbl:'Setor de Ofício '+(o.nota_ref||'')+' — em aberto', dt:o.recebimento?fmtDate(o.recebimento):null, e:'notif'});
+      }
+    });
+    if(faseNotifAtiva && !oficiosOrdenados.length) {
+      etapas.push({lbl:'Notificação — aguardando retorno do cartório', dt:null, e:'notif'});
+    }
+  }
+
   etapas.push({lbl:'Registro concluído', dt:null, e:p.etapa==='concluido'?'done':'pending'});
-  const dc={done:'dot-done',active:'dot-active',exig:'dot-exig',pending:'dot-pend',cancelado:'dot-cancelado',ativo:'dot-ativo'};
+  const dc={done:'dot-done',active:'dot-active',exig:'dot-exig',pending:'dot-pend',cancelado:'dot-cancelado',ativo:'dot-ativo',notif:'dot-notif'};
   const saldo=(p.honorarios||0)-(p.recebido||0);
   document.getElementById('detalhe-content').innerHTML=`
-    ${function(){
-      var prots = (p.protocolos||[]).slice().sort(function(a,b){ return (a.ordem||0)-(b.ordem||0); });
-      if(!prots.length) {
-        return '<div class="detail-grid"><div class="card" style="margin-bottom:0;">'
-          +'<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Protocolo ONR</div><div class="mono" style="margin-bottom:10px;">'+(p.protocolo||'—')+'</div>'
-          +'<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Número interno</div><div class="mono" style="margin-bottom:10px;">'+(p.interno||'—')+'</div>'
-          +'<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Cartório</div><div style="font-size:13px;">'+(p.cartorio||'—')+'</div>'
-          +'<div style="margin-top:12px;"><button class="btn" onclick="abrirModalProtocolo(null)"><i class="ti ti-plus"></i> Adicionar protocolo</button></div>'
-          +'</div>'
-          +'<div class="card" style="margin-bottom:0;">'
-          +'<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Cliente</div><div style="font-size:13px;margin-bottom:10px;">'+p.cliente+'</div>'
-          +'<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Imóvel</div><div style="font-size:13px;margin-bottom:10px;">'+(p.imovel||'—')+'</div>'
-          +'<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Honorários</div>'
-          +'<div style="font-size:13px;">R$ '+(p.honorarios||0).toLocaleString('pt-BR')+' <span style="font-size:11px;color:'+(saldo>0?'var(--warning)':'var(--success)')+';">· '+(saldo>0?'R$ '+saldo.toLocaleString('pt-BR')+' a receber':'Quitado')+'</span></div>'
-          +'</div></div>';
-      }
-      var html = '<div class="row-between" style="margin-bottom:8px;">'
-        +'<div style="font-size:13px;font-weight:500;color:var(--brand);">Protocolos</div>'
-        +'<button class="btn" onclick="abrirModalProtocolo(null)"><i class="ti ti-plus"></i> Novo protocolo</button>'
-        +'</div>'
-        +'<div class="prot-grid">';
-      prots.forEach(function(prot) {
-        var faseAtiva = getFaseAtiva(prot);
-        var prenotVenc = vencimentoPrenotacao(prot.apresentacao);
-        var prenotDias = prenotVenc ? diasUteis(prenotVenc.toISOString().split('T')[0]) : null;
-        var isCancelado = prot.status === 'cancelado';
-        html += '<div class="prot-card'+(isCancelado?' cancelado':'')+'">';
-        // Head
-        html += '<div class="prot-head">'
-          +'<span style="font-size:12px;font-weight:600;color:'+(isCancelado?'var(--text3)':'var(--brand)')+';">Prot. '+(prot.ordem||1)+(isCancelado?' — CANCELADO':' — ATIVO')+'</span>'
-          +'<div class="prot-head-title"></div>'
-          +'<button class="btn" style="font-size:11px;padding:2px 8px;" data-action="edit-prot" data-id="'+prot.id+'"><i class="ti ti-edit" style="font-size:11px;"></i></button>'
-          +'</div>';
-        // Body: two columns — dados do protocolo | dados do processo
-        html += '<div class="prot-body">'
-          +'<div class="prot-col">'
-          +'<div class="prot-field"><div class="prot-field-label">ONR</div><div class="prot-field-value mono">'+(prot.numero_onr||'—')+'</div></div>'
-          +'<div class="prot-field"><div class="prot-field-label">INTERNO</div><div class="prot-field-value mono">'+(prot.numero_interno||'—')+'</div></div>'
-          +'<div class="prot-field"><div class="prot-field-label">APRESENTAÇÃO</div><div class="prot-field-value">'+(prot.apresentacao?fmtDate(prot.apresentacao):'—')+'</div></div>'
-          +'</div>'
-          +'<div class="prot-col">'
-          +'<div class="prot-field"><div class="prot-field-label">CLIENTE</div><div class="prot-field-value">'+p.cliente+'</div></div>'
-          +'<div class="prot-field"><div class="prot-field-label">IMÓVEL</div><div class="prot-field-value">'+(p.imovel||'—')+'</div></div>'
-          +'<div class="prot-field"><div class="prot-field-label">CARTÓRIO</div><div class="prot-field-value">'+(p.cartorio||'—')+'</div></div>'
-          +'</div>'
-          +'</div>';
-        // Prenotação
-        if(prenotVenc && !isCancelado) {
-          html += '<div class="prot-prenot">'
-            +'<i class="ti ti-info-circle" style="font-size:14px;color:var(--text3);"></i>'
-            +'<span style="font-size:11px;color:var(--text2);">Prenotação (prazo fatal):</span>'
-            +'<span style="font-size:12px;font-weight:500;color:'+(prenotDias<=0?'var(--danger)':prenotDias<=5?'var(--warning)':'var(--text)')+'">'
-            +fmtDate(prenotVenc)+(prenotDias<=0?' — Vencida':' — '+prenotDias+' dias')+'</span>'
+    <div class="detail-grid">
+      <div class="card" style="margin-bottom:0;">
+        <div class="card-title">Cliente</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Cliente</div><div style="font-size:13px;margin-bottom:10px;">${p.cliente}</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Imóvel</div><div style="font-size:13px;margin-bottom:10px;">${p.imovel||'—'}</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Cartório</div><div style="font-size:13px;margin-bottom:10px;">${p.cartorio||'—'}</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Honorários</div>
+        <div style="font-size:13px;">R$ ${(p.honorarios||0).toLocaleString('pt-BR')} <span style="font-size:11px;color:${saldo>0?'var(--warning)':'var(--success)'};">· ${saldo>0?'R$ '+saldo.toLocaleString('pt-BR')+' a receber':'Quitado'}</span></div>
+      </div>
+      ${function(){
+        var prots = (p.protocolos||[]).slice().sort(function(a,b){ return (a.ordem||0)-(b.ordem||0); });
+        if(!prots.length) {
+          return '<div class="card" style="margin-bottom:0;">'
+            +'<div class="card-title">Protocolo</div>'
+            +'<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Protocolo ONR</div><div class="mono" style="margin-bottom:10px;">'+(p.protocolo||'—')+'</div>'
+            +'<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Número interno</div><div class="mono" style="margin-bottom:10px;">'+(p.interno||'—')+'</div>'
+            +'<button class="btn" onclick="abrirModalProtocolo(null)"><i class="ti ti-plus"></i> Adicionar protocolo</button>'
             +'</div>';
         }
-        if(isCancelado && prot.motivo_cancelamento) {
-          html += '<div class="prot-prenot" style="background:var(--surface2);">'
-            +'<i class="ti ti-x-circle" style="font-size:14px;color:var(--text3);"></i>'
-            +'<span style="font-size:11px;color:var(--text3);">'+prot.motivo_cancelamento+'</span>'
+        var html = '<div class="card" style="margin-bottom:0;padding:0;overflow:hidden;">'
+          +'<div class="row-between" style="padding:1.25rem 1.25rem 0;margin-bottom:0;">'
+          +'<div class="card-title" style="margin-bottom:10px;">Protocolo'+(prots.length>1?'s':'')+'</div>'
+          +'<button class="btn" style="font-size:11px;margin-bottom:10px;" onclick="abrirModalProtocolo(null)"><i class="ti ti-plus"></i> Novo</button>'
+          +'</div>'
+          +'<div class="prot-cards-row">';
+        prots.forEach(function(prot) {
+          var prenotVenc = vencimentoPrenotacao(prot.apresentacao);
+          var prenotDias = prenotVenc ? diasUteis(prenotVenc.toISOString().split('T')[0]) : null;
+          var isCancelado = prot.status === 'cancelado';
+          html += '<div class="prot-col-item'+(isCancelado?' cancelado':'')+'">';
+          html += '<div class="prot-col-head">'
+            +'<span class="prot-col-head-title" style="color:'+(isCancelado?'var(--text3)':'var(--brand)')+';">Prot. '+(prot.ordem||1)+(isCancelado?' — CANCELADO':' — ATIVO')+'</span>'
+            +'<button class="btn" style="font-size:11px;padding:2px 8px;" data-action="edit-prot" data-id="'+prot.id+'"><i class="ti ti-edit" style="font-size:11px;"></i></button>'
             +'</div>';
-        }
-        // Fase atual
-        if(faseAtiva && !isCancelado) {
-          html += '<div class="prot-fase">'
-            +'Fase atual: <strong style="color:var(--text)">'+faseAtiva.tipo.replace('_',' ')+'</strong>'
-            +(faseAtiva.ne_ref?' — '+faseAtiva.ne_ref:'')
-            +'</div>';
-          html += '<div class="prot-actions">'
-            +'<button class="btn" style="font-size:11px;" data-action="nova-fase" data-id="'+prot.id+'"><i class="ti ti-arrow-right"></i> Avançar fase</button>'
-            +'</div>';
-        }
-        html += '</div>'; // .prot-card
-      });
-      html += '</div>'; // .prot-grid
-      return html
-        +'<div class="detail-grid"><div class="card" style="margin-bottom:0;">'
-        +'<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Honorários</div>'
-        +'<div style="font-size:13px;">R$ '+(p.honorarios||0).toLocaleString('pt-BR')+' <span style="font-size:11px;color:'+(saldo>0?'var(--warning)':'var(--success)')+';">· '+(saldo>0?'R$ '+saldo.toLocaleString('pt-BR')+' a receber':'Quitado')+'</span></div>'
-        +'</div>';
-    }()}
+          html += '<div class="prot-field"><div class="prot-field-label">ONR</div><div class="prot-field-value mono">'+(prot.numero_onr||'—')+'</div></div>'
+            +'<div class="prot-field"><div class="prot-field-label">INTERNO</div><div class="prot-field-value mono">'+(prot.numero_interno||'—')+'</div></div>'
+            +'<div class="prot-field"><div class="prot-field-label">APRESENTAÇÃO</div><div class="prot-field-value">'+(prot.apresentacao?fmtDate(prot.apresentacao):'—')+'</div></div>';
+          if(prenotVenc && !isCancelado) {
+            html += '<div class="prot-prenot">'
+              +'<i class="ti ti-info-circle" style="font-size:13px;color:var(--text3);"></i>'
+              +'<span style="font-size:11px;color:var(--text2);">Prenotação:</span>'
+              +'<span style="font-size:12px;font-weight:500;color:'+(prenotDias<=0?'var(--danger)':prenotDias<=5?'var(--warning)':'var(--text)')+'">'
+              +fmtDate(prenotVenc)+(prenotDias<=0?' — Vencida':' — '+prenotDias+' dias')+'</span>'
+              +'</div>';
+          }
+          if(isCancelado && prot.motivo_cancelamento) {
+            html += '<div class="prot-cancel-motivo">'+prot.motivo_cancelamento+'</div>';
+          }
+          html += '</div>'; // .prot-col-item
+        });
+        html += '</div></div>'; // .prot-cards-row, .card
+        return html;
+      }()}
     </div>
     <div class="detail-grid">
       <div class="card" style="margin-bottom:0;">
-        <div class="card-title">Prazos</div>
+        <div class="row-between" style="margin-bottom:1rem;">
+          <div class="card-title" style="margin-bottom:0;">Prazos</div>
+          ${function(){
+            var protAtivo = getProtocoloAtivo(p);
+            var faseAtivaAtual = protAtivo ? getFaseAtiva(protAtivo) : null;
+            var podeNotificar = protAtivo && faseAtivaAtual && (faseAtivaAtual.tipo==='analise_ri' || faseAtivaAtual.tipo==='analise_final');
+            return podeNotificar ? '<button class="btn" style="font-size:11px;" data-action="abrir-notificacao" data-id="'+protAtivo.id+'"><i class="ti ti-bell"></i> Concluir análise → Notificação</button>' : '';
+          }()}
+        </div>
+        <div class="card-scroll">
         ${prazos.length?prazos.map(pr=>`
           <div class="prazo-item ${pCls(pr.dias,pr.tipo)}" style="margin-bottom:8px;">${pIcon(pr.dias,pr.tipo)}
-            <div style="flex:1;"><div class="pname" style="font-size:12px;">${pr.nome}</div><div class="psub">Vence ${fmtDate(pr.venc)}</div></div>
-            <span class="pdays ${dCls(pr.dias,pr.tipo)}">${daysLabel(pr.dias)}</span>
+            <div style="flex:1;"><div class="pname" style="font-size:12px;">${pr.nome}</div><div class="psub">${pr.semPrazo?'Sem prazo definido':'Vence '+fmtDate(pr.venc)}</div></div>
+            ${pr.semPrazo?'':`<span class="pdays ${dCls(pr.dias,pr.tipo)}">${daysLabel(pr.dias)}</span>`}
           </div>`).join(''):'<div class="empty" style="padding:0.5rem 0;">Sem prazos ativos</div>'}
+        </div>
       </div>
       <div class="card" style="margin-bottom:0;">
         <div class="card-title">Linha do tempo</div>
-        <div class="tl">${etapas.map((e,i)=>`
+        <div class="tl card-scroll">${etapas.map((e,i)=>`
           <div class="tl-item">
             <div class="tl-dc"><div class="tl-dot ${dc[e.e]||'dot-pend'}"></div>${i<etapas.length-1?'<div class="tl-line"></div>':''}</div>
             <div><div class="tl-lbl" style="color:${e.e==='pending'?'var(--text3)':'var(--text)'};">${e.lbl}</div>${e.dt?`<div class="tl-dt">${e.dt}</div>`:''}</div>
@@ -1787,6 +1993,11 @@ function renderDetalhe() {
       </div>
       <textarea id="obs-textarea" style="width:100%;min-height:80px;padding:9px 11px;border:1px solid var(--border-med);border-radius:var(--r);font-size:13px;font-family:inherit;color:var(--text);background:white;resize:vertical;" placeholder="Anotações sobre o andamento do processo...">${p.observacao||''}</textarea>
     </div>
+    ${function(){
+      var protAtivo = getProtocoloAtivo(p);
+      var temNotif = protAtivo && (protAtivo.fases||[]).some(function(f){ return f.tipo==='notificacao'; });
+      return temNotif ? '<div class="card" id="card-oficio"></div>' : '';
+    }()}
     <div class="card" id="card-exigencia"></div>
     <div class="card">
       <div class="row-between" style="margin-bottom:8px;">
@@ -1808,7 +2019,7 @@ function renderDetalhe() {
         </div>
       </div>
     </div>`;
-  // Event delegation for protocolo/fase buttons in detalhe
+  // Event delegation for protocolo/fase/notificação buttons in detalhe
   var dc2 = document.getElementById('detalhe-content');
   if(dc2) {
     dc2.onclick = function(e){
@@ -1817,8 +2028,10 @@ function renderDetalhe() {
       var action = btn.dataset.action, id = btn.dataset.id;
       if(action==='edit-prot') abrirModalProtocolo(id);
       else if(action==='nova-fase') abrirModalFase(id);
+      else if(action==='abrir-notificacao') abrirFaseNotificacao(id);
     };
   }
+  renderOficios();
   // Update concluir button based on etapa
   const btnC = document.getElementById('btn-concluir');
   if(btnC) {
@@ -1861,6 +2074,106 @@ async function salvarObservacao() {
   await sb.from('processos').update({observacao: val}).eq('id', activeProc.id);
   activeProc.observacao = val;
   toast('Observação salva!');
+}
+
+function renderOficios() {
+  const p=activeProc, el=document.getElementById('card-oficio');
+  if(!el)return;
+  const oficios=p.oficios||[];
+  const abertos=oficios.filter(o=>!o.resolvida);
+  const aguardandoRetorno=oficios.filter(o=>o.resolvida && o.prazo_retorno_cartorio);
+
+  let html=`<div class="row-between" style="margin-bottom:12px;">
+    <div class="card-title" style="margin-bottom:0;">Setor de Ofício</div>
+    <button class="btn" onclick="abrirModalOficio()"><i class="ti ti-plus"></i> Novo registro</button>
+  </div>`;
+
+  if(!abertos.length){
+    html+=`<div class="empty" style="padding:1rem 0;"><i class="ti ti-circle-check"></i>Nenhum registro em aberto</div>`;
+  }
+
+  abertos.forEach((of,idx)=>{
+    const itens=(p.oficio_itens||[]).filter(i=>i.oficio_id===of.id);
+    const done=itens.filter(i=>i.done).length, pct=itens.length?Math.round(done/itens.length*100):0;
+    const allDone=itens.length>0&&done===itens.length;
+    const diasP=of.prazo_cumprir?diasUteis(of.prazo_cumprir):null;
+    const vencido=diasP!==null&&diasP<=0;
+
+    html+=`<div class="oficio-card${vencido?' vencido':''}">
+      <div class="exig-card-header">
+        <i class="ti ti-mail" style="font-size:18px;color:#6b3fa0;"></i>
+        <div style="flex:1;">
+          <div style="font-weight:500;font-size:13px;">${of.nota_ref||'Ofício '+(idx+1)}${of.recebimento?' · Recebido em '+fmtDate(of.recebimento):''}</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px;">${of.obs||''}</div>
+        </div>
+        <button class="btn" style="font-size:11px;padding:3px 8px;flex-shrink:0;margin-left:8px;" onclick="editarOficio('${of.id}')"><i class="ti ti-edit" style="font-size:11px"></i> Editar</button>
+        <button class="btn" style="font-size:11px;padding:3px 8px;flex-shrink:0;color:var(--danger);border-color:#f5c6c2;" onclick="deletarOficio('${of.id}')"><i class="ti ti-trash" style="font-size:11px"></i></button>
+        ${of.prazo_cumprir?`<div style="text-align:right;flex-shrink:0;">
+          <div style="font-size:11px;color:var(--text2);">Prazo p/ cumprir</div>
+          <div style="font-size:13px;font-weight:500;color:${vencido?'var(--danger)':'#6b3fa0'};">${fmtDate(of.prazo_cumprir)} · ${daysLabel(diasP)}</div>
+        </div>`:''}
+      </div>
+
+      <div class="row-between" style="margin-bottom:6px;">
+        <div class="section-label" style="margin:0;">Pendências</div>
+        <span style="font-size:11px;color:var(--text2);">${done} de ${itens.length} resolvidos</span>
+      </div>
+      <div class="prog-bar"><div class="prog-fill" style="width:${pct}%;"></div></div>
+      <div style="margin-top:8px;">
+        ${itens.map(it=>`<div class="chk-row">
+          <div class="chk-box ${it.done?'ck':''}" onclick="toggleOficioItem('${it.id}',${!it.done})"></div>
+          <div style="flex:1;"><div class="chk-text ${it.done?'done':''}">${it.texto}</div>${it.responsavel?`<div class="chk-resp"><span class="rtag ${it.resp_class||''}">${it.responsavel}</span></div>`:''}</div>
+        </div>`).join('')}
+        ${!itens.length?'<div style="font-size:13px;color:var(--text3);padding:8px 0;">Nenhuma pendência adicionada.</div>':''}
+      </div>
+      <div class="add-form" style="margin-top:10px;">
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <input class="inline-input" type="text" id="oficio-new-text-${of.id}" placeholder="Nova pendência..." style="flex:1;">
+          <button class="btn" onclick="addOficioItemTo('${of.id}')"><i class="ti ti-plus"></i> Adicionar</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span style="font-size:11px;color:var(--text2);">Responsável:</span>
+          <div class="resp-pills">
+            <button type="button" class="rp" id="orp-eu-${of.id}" onclick="selRpForOficio('${of.id}','eu','Eu (advogado)','r-eu')">Eu (advogado)</button>
+            <button type="button" class="rp" id="orp-cli-${of.id}" onclick="selRpForOficio('${of.id}','cli','Cliente','r-cli')">Cliente</button>
+            <button type="button" class="rp" id="orp-ter-${of.id}" onclick="selRpForOficio('${of.id}','ter','Terceiro','r-ter')">Terceiro</button>
+            <button type="button" class="rp" id="orp-car-${of.id}" onclick="selRpForOficio('${of.id}','car','Cartório','r-car')">Cartório</button>
+          </div>
+          <input class="inline-input" type="text" id="orp-custom-${of.id}" placeholder="Nome do terceiro..." style="display:none;width:150px;">
+        </div>
+      </div>
+      ${allDone
+        ?`<div class="alert alert-success" style="margin-top:12px;"><i class="ti ti-circle-check" style="font-size:16px;flex-shrink:0;"></i><div style="flex:1;">Todos os itens resolvidos — pronto para reingresso</div><button class="btn" style="flex-shrink:0;" onclick="abrirModalOficioReingresso('${of.id}')">Registrar reingresso</button></div>`
+        :`<div class="alert alert-warn" style="margin-top:12px;"><i class="ti ti-clock" style="font-size:16px;flex-shrink:0;"></i><div>${itens.length-done} pendência${itens.length-done!==1?'s':''} em aberto</div></div>`
+      }
+    </div>`;
+  });
+
+  aguardandoRetorno.forEach((of)=>{
+    const diasRet=of.prazo_retorno_cartorio?diasUteis(of.prazo_retorno_cartorio):null;
+    html+=`<div class="oficio-card" style="background:white;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <i class="ti ti-clock" style="font-size:16px;color:#6b3fa0;flex-shrink:0;"></i>
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:500;">${of.nota_ref||'Ofício'} — Reingressado em ${fmtDate(of.data_reingresso_realizado)}</div>
+          <div style="font-size:11px;color:var(--text2);">Aguardando retorno do cartório</div>
+        </div>
+        <span style="font-size:12px;font-weight:500;color:#6b3fa0;">${fmtDate(of.prazo_retorno_cartorio)} · ${daysLabel(diasRet)}</span>
+      </div>
+    </div>`;
+  });
+
+  // Resolvidos sem retorno pendente (histórico)
+  const resolvidos = oficios.filter(o=>o.resolvida && !o.prazo_retorno_cartorio);
+  if(resolvidos.length){
+    html += "<div style='margin-top:12px'>";
+    html += "<div style='font-size:11px;font-weight:500;color:var(--text2);margin-bottom:8px;display:flex;align-items:center;gap:6px'>";
+    html += "<i class='ti ti-circle-check' style='color:var(--success);font-size:13px'></i> ";
+    html += resolvidos.length + " registro" + (resolvidos.length>1?"s":"") + " do Setor de Of\u00edcio resolvido" + (resolvidos.length>1?"s":"");
+    html += "</div></div>";
+  }
+
+  el.innerHTML=html;
 }
 
 function renderExigencia() {
