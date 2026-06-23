@@ -1404,7 +1404,7 @@ function diasUteis(target) {
   var s = (typeof target === 'string') ? target.replace(/T.*/, '') : target.toISOString().split('T')[0];
   var parts = s.split('-');
   var t = new Date(parseInt(parts[0]), parseInt(parts[1])-1, parseInt(parts[2]));
-  t.setHours(12,0,0,0);
+  t.setHours(0,0,0,0);
   var today = new Date(); today.setHours(0,0,0,0);
   if(t <= today) return 0;
   var d = new Date(today); var count = 0;
@@ -1849,58 +1849,163 @@ function abrirDetalhe(id) {
   renderDetalhe();
 }
 
+// Constrói a linha do tempo completa do processo, considerando:
+// - protocolo(s) na tabela nova (apresentação + cancelamento, se houver)
+// - fallback para o protocolo legado (campos diretos em "processos") quando não há tabela protocolos
+// - NEs (exigências) e análises RI subsequentes
+// - fase de Notificação / Setor de Ofício, quando aplicável
+// - marca como "active" apenas o evento que corresponde à fase realmente em curso hoje
+function construirTimeline(p) {
+  var etapas = [];
+  var prots = (p.protocolos||[]).slice().sort(function(a,b){ return (a.ordem||0)-(b.ordem||0); });
+  var temProtocolosNovos = prots.length > 0;
+
+  etapas.push({lbl:'Documentação reunida', dt:null, e: p.etapa!=='docs'?'done':'active', ord:'0'});
+
+  if(temProtocolosNovos) {
+    // Um bloco de eventos por protocolo: apresentação, e cancelamento se houver
+    prots.forEach(function(prot) {
+      var isCancelado = prot.status === 'cancelado';
+      etapas.push({
+        lbl: 'Apresentação ao cartório — Prot. '+(prot.ordem||1),
+        dt: prot.apresentacao?fmtDate(prot.apresentacao):null,
+        e: prot.apresentacao ? 'done' : 'pending',
+        ord: prot.apresentacao||''
+      });
+      if(isCancelado) {
+        etapas.push({
+          lbl: 'Prot. '+(prot.ordem||1)+' cancelado — '+(prot.motivo_cancelamento||'prenotação vencida'),
+          dt: prot.data_cancelamento?fmtDate(prot.data_cancelamento):null,
+          e: 'cancelado',
+          ord: prot.data_cancelamento||(prot.apresentacao||'')
+        });
+      }
+    });
+
+    // Eventos do protocolo ATIVO: análise RI, NEs, fase de notificação
+    var protAtivo = getProtocoloAtivo(p);
+    if(protAtivo) {
+      var faseAtivaReal = getFaseAtiva(protAtivo);
+      var fasesDoProt = (protAtivo.fases||[]).slice().sort(function(a,b){ return (a.created_at||'').localeCompare(b.created_at||''); });
+
+      // Análise RI inicial (primeira fase do protocolo, se for do tipo analise_ri/analise_final, concluída ou ativa)
+      var primeiraAnalise = fasesDoProt.find(function(f){ return f.tipo==='analise_ri'; });
+      if(primeiraAnalise) {
+        var isAtivaAgora = faseAtivaReal && faseAtivaReal.id === primeiraAnalise.id;
+        etapas.push({
+          lbl: 'Análise no RI (10 dias úteis)',
+          dt: primeiraAnalise.prazo_vencimento?fmtDate(primeiraAnalise.prazo_vencimento):null,
+          e: isAtivaAgora ? 'active' : (primeiraAnalise.status==='concluido' ? 'done' : 'pending'),
+          ord: primeiraAnalise.prazo_inicio||protAtivo.apresentacao||''
+        });
+      } else if(protAtivo.apresentacao) {
+        // Nenhuma fase registrada ainda — análise RI implícita pendente/ativa
+        var temNEAberta = (p.exigencias||[]).some(function(e){ return !e.resolvida; });
+        etapas.push({
+          lbl: 'Análise no RI (10 dias úteis)',
+          dt: fmtDate(addDiasUteis(protAtivo.apresentacao,10)),
+          e: temNEAberta ? 'done' : 'active',
+          ord: protAtivo.apresentacao
+        });
+      }
+
+      // NEs (exigências) em ordem cronológica, com a análise RI pós-NE correspondente
+      var exigsOrdenadas = (p.exigencias||[]).slice().sort(function(a,b){
+        return (a.created_at||'').localeCompare(b.created_at||'');
+      });
+      exigsOrdenadas.forEach(function(e) {
+        if(e.resolvida) {
+          etapas.push({
+            lbl:'NE '+(e.nota_ref||'')+' — Exigência cumprida',
+            dt:e.data_reingresso_realizado?fmtDate(e.data_reingresso_realizado):null,
+            e:'done', ord:e.data_reingresso_realizado||e.created_at||''
+          });
+          // A análise RI pós-NE só fica "active" se for de fato a fase ativa agora
+          // (ou seja: não há NE aberta posterior, e a fase ativa do protocolo é analise_ri/analise_final)
+          var temNEAbertaDepoisDesta = exigsOrdenadas.some(function(e2){
+            return !e2.resolvida && (e2.created_at||'') > (e.created_at||'');
+          });
+          var isEstaAFaseAtiva = !temNEAbertaDepoisDesta
+            && faseAtivaReal
+            && (faseAtivaReal.tipo==='analise_ri' || faseAtivaReal.tipo==='analise_final')
+            && e === exigsOrdenadas[exigsOrdenadas.length-1];
+          etapas.push({
+            lbl:'Análise no RI (10 dias úteis) — pós '+(e.nota_ref||''),
+            dt:e.novo_prazo_analise?fmtDate(new Date(e.novo_prazo_analise)):null,
+            e: isEstaAFaseAtiva ? 'active' : (p.etapa==='concluido' || temFaseNotificacao(p) ? 'done' : (temNEAbertaDepoisDesta ? 'done' : 'pending')),
+            ord:e.novo_prazo_analise||e.data_reingresso_realizado||''
+          });
+        } else {
+          etapas.push({
+            lbl:'NE '+(e.nota_ref||'')+' — Exigência em aberto',
+            dt:e.recebimento?fmtDate(e.recebimento):null,
+            e:'exig', ord:e.recebimento||e.created_at||''
+          });
+        }
+      });
+
+      // Fase de Notificação / Setor de Ofício
+      if(temFaseNotificacao(p)) {
+        var faseNotif = fasesDoProt.find(function(f){ return f.tipo==='notificacao'; });
+        var notifEhAtiva = faseAtivaReal && faseAtivaReal.tipo==='notificacao';
+        etapas.push({
+          lbl:'Análise registral concluída — abertura de Notificação',
+          dt:faseNotif?fmtDate(faseNotif.prazo_inicio):null,
+          e:'done', ord:(faseNotif&&faseNotif.prazo_inicio)||''
+        });
+        var oficiosOrdenados = (p.oficios||[]).slice().sort(function(a,b){ return (a.created_at||'').localeCompare(b.created_at||''); });
+        oficiosOrdenados.forEach(function(o, idx) {
+          if(o.resolvida) {
+            etapas.push({lbl:'Setor de Ofício '+(o.nota_ref||'')+' — cumprido', dt:o.data_reingresso_realizado?fmtDate(o.data_reingresso_realizado):null, e:'done', ord:o.data_reingresso_realizado||o.created_at||''});
+          } else {
+            etapas.push({lbl:'Setor de Ofício '+(o.nota_ref||'')+' — em aberto', dt:o.recebimento?fmtDate(o.recebimento):null, e:'notif', ord:o.recebimento||o.created_at||''});
+          }
+        });
+        if(notifEhAtiva && !oficiosOrdenados.some(function(o){return !o.resolvida;})) {
+          etapas.push({lbl:'Notificação — aguardando retorno do cartório', dt:null, e:'notif', ord:'zzz_notif'});
+        }
+      }
+    }
+  } else {
+    // LEGADO: processo ainda sem registro na tabela "protocolos" — usa campos diretos
+    var exigsOrdenadasLeg = (p.exigencias||[]).slice().sort(function(a,b){
+      return (a.created_at||'').localeCompare(b.created_at||'');
+    });
+    var temExigLeg = exigsOrdenadasLeg.length > 0;
+    var todasResolvidasLeg = temExigLeg && exigsOrdenadasLeg.every(function(e){ return e.resolvida; });
+
+    etapas.push({lbl:'Apresentação ao cartório', dt:p.apresentacao?fmtDate(p.apresentacao):null,
+      e: p.apresentacao ? 'done' : 'pending', ord:p.apresentacao||''});
+    etapas.push({lbl:'Análise no RI (10 dias úteis)',
+      dt: p.apresentacao && !temExigLeg ? fmtDate(addDiasUteis(p.apresentacao,10)) : null,
+      e: !temExigLeg && p.etapa!=='docs' && p.etapa!=='concluido' ? 'active'
+        : todasResolvidasLeg || p.etapa==='concluido' ? 'done'
+        : temExigLeg ? 'done' : 'pending',
+      ord:p.apresentacao||''});
+    exigsOrdenadasLeg.forEach(function(e) {
+      if(e.resolvida) {
+        etapas.push({lbl:'NE '+(e.nota_ref||'')+' — Exigência cumprida', dt:e.data_reingresso_realizado?fmtDate(e.data_reingresso_realizado):null, e:'done', ord:e.data_reingresso_realizado||''});
+        etapas.push({lbl:'Análise no RI (10 dias úteis) — pós '+(e.nota_ref||''), dt:e.novo_prazo_analise?fmtDate(new Date(e.novo_prazo_analise)):null, e: p.etapa==='concluido'?'done':'active', ord:e.novo_prazo_analise||''});
+      } else {
+        etapas.push({lbl:'NE '+(e.nota_ref||'')+' — Exigência em aberto', dt:e.recebimento?fmtDate(e.recebimento):null, e:'exig', ord:e.recebimento||''});
+      }
+    });
+  }
+
+  etapas.push({lbl:'Registro concluído', dt:null, e:p.etapa==='concluido'?'done':'pending', ord:'zzz_fim'});
+  return etapas;
+}
+
+function temFaseNotificacao(p) {
+  var prot = getProtocoloAtivo(p);
+  return !!(prot && (prot.fases||[]).some(function(f){ return f.tipo==='notificacao'; }));
+}
+
 function renderDetalhe() {
   const p=activeProc, prazos=getPrazosAtivos(p), [bc,bl]=etapaInfo(p);
   const docs=p.checklist_docs||[], dd=docs.filter(d=>d.done).length;
-  // Build dynamic timeline
-  var exigsOrdenadas = (p.exigencias||[]).slice().sort(function(a,b){
-    return (a.created_at||'').localeCompare(b.created_at||'');
-  });
-  var temExig = exigsOrdenadas.length > 0;
-  var todasResolvidas = temExig && exigsOrdenadas.every(function(e){ return e.resolvida; });
-  var temAberta = exigsOrdenadas.some(function(e){ return !e.resolvida; });
 
-  const etapas=[
-    {lbl:'Documentação reunida', dt:null, e: p.etapa!=='docs'?'done':'active'},
-    {lbl:'Apresentação ao cartório', dt:p.apresentacao?fmtDate(p.apresentacao):null,
-      e: p.apresentacao ? 'done' : 'pending'},
-    {lbl:'Análise no RI (10 dias úteis)',
-      dt: p.apresentacao && !temExig ? fmtDate(addDiasUteis(p.apresentacao,10)) : null,
-      e: !temExig && p.etapa!=='docs' && p.etapa!=='concluido' ? 'active'
-        : todasResolvidas || p.etapa==='concluido' ? 'done'
-        : temExig ? 'done' : 'pending'},
-  ];
-
-  // One entry per NE
-  exigsOrdenadas.forEach(function(e) {
-    if(e.resolvida) {
-      etapas.push({lbl:'NE '+( e.nota_ref||'') +' — Exigência cumprida', dt:e.data_reingresso_realizado?fmtDate(e.data_reingresso_realizado):null, e:'done'});
-      etapas.push({lbl:'Análise no RI (10 dias úteis) — pós '+( e.nota_ref||''), dt:e.novo_prazo_analise?fmtDate(new Date(e.novo_prazo_analise)):null, e: p.etapa==='concluido'?'done':'active'});
-    } else {
-      etapas.push({lbl:'NE '+(e.nota_ref||'')+' — Exigência em aberto', dt:e.recebimento?fmtDate(e.recebimento):null, e:'exig'});
-    }
-  });
-
-  // Notificação — fase pós-análise, com Setor de Ofício (prazos manuais)
-  var protAtivoTl = getProtocoloAtivo(p);
-  var temFaseNotificacao = protAtivoTl && (protAtivoTl.fases||[]).some(function(f){ return f.tipo==='notificacao'; });
-  if(temFaseNotificacao) {
-    var faseNotifAtiva = protAtivoTl.fases.find(function(f){ return f.tipo==='notificacao' && f.status==='ativo'; });
-    etapas.push({lbl:'Análise registral concluída — abertura de Notificação', dt:faseNotifAtiva?fmtDate(faseNotifAtiva.prazo_inicio):null, e:'done'});
-    var oficiosOrdenados = (p.oficios||[]).slice().sort(function(a,b){ return (a.created_at||'').localeCompare(b.created_at||''); });
-    oficiosOrdenados.forEach(function(o) {
-      if(o.resolvida) {
-        etapas.push({lbl:'Setor de Ofício '+(o.nota_ref||'')+' — cumprido', dt:o.data_reingresso_realizado?fmtDate(o.data_reingresso_realizado):null, e:'done'});
-      } else {
-        etapas.push({lbl:'Setor de Ofício '+(o.nota_ref||'')+' — em aberto', dt:o.recebimento?fmtDate(o.recebimento):null, e:'notif'});
-      }
-    });
-    if(faseNotifAtiva && !oficiosOrdenados.length) {
-      etapas.push({lbl:'Notificação — aguardando retorno do cartório', dt:null, e:'notif'});
-    }
-  }
-
-  etapas.push({lbl:'Registro concluído', dt:null, e:p.etapa==='concluido'?'done':'pending'});
+  var etapas = construirTimeline(p);
   const dc={done:'dot-done',active:'dot-active',exig:'dot-exig',pending:'dot-pend',cancelado:'dot-cancelado',ativo:'dot-ativo',notif:'dot-notif'};
   const saldo=(p.honorarios||0)-(p.recebido||0);
   document.getElementById('detalhe-content').innerHTML=`
@@ -1979,7 +2084,7 @@ function renderDetalhe() {
       </div>
       <div class="card" style="margin-bottom:0;">
         <div class="card-title">Linha do tempo</div>
-        <div class="tl card-scroll">${etapas.map((e,i)=>`
+        <div class="tl card-scroll" id="timeline-scroll">${etapas.map((e,i)=>`
           <div class="tl-item">
             <div class="tl-dc"><div class="tl-dot ${dc[e.e]||'dot-pend'}"></div>${i<etapas.length-1?'<div class="tl-line"></div>':''}</div>
             <div><div class="tl-lbl" style="color:${e.e==='pending'?'var(--text3)':'var(--text)'};">${e.lbl}</div>${e.dt?`<div class="tl-dt">${e.dt}</div>`:''}</div>
@@ -2032,6 +2137,9 @@ function renderDetalhe() {
     };
   }
   renderOficios();
+  // Linha do tempo: começa rolada para o final (fase atual); usuário rola para cima para ver o histórico
+  var tlEl = document.getElementById('timeline-scroll');
+  if(tlEl) tlEl.scrollTop = tlEl.scrollHeight;
   // Update concluir button based on etapa
   const btnC = document.getElementById('btn-concluir');
   if(btnC) {
