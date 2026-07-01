@@ -1831,6 +1831,18 @@ function renderProcessos() {
     const matchNome = !termoBusca || p.cliente.toLowerCase().includes(termoBusca) || (p.protocolo||'').toLowerCase().includes(termoBusca);
     const matchTipo = !tipoSel || p.tipo === tipoSel;
     return matchNome && matchTipo;
+  }).sort(function(a, b) {
+    // Concluídos sempre no final
+    var aConcluido = a.etapa === 'concluido' ? 1 : 0;
+    var bConcluido = b.etapa === 'concluido' ? 1 : 0;
+    if(aConcluido !== bConcluido) return aConcluido - bConcluido;
+    // Entre ativos: ordena por prazo mais urgente primeiro
+    var prA = getPrazoPrincipal(a);
+    var prB = getPrazoPrincipal(b);
+    if(prA && prB) return prA.dias - prB.dias;
+    if(prA) return -1;
+    if(prB) return 1;
+    return 0;
   });
   document.getElementById('tbody-processos').innerHTML=filtered.length?filtered.map(p=>{
     const [bc,bl]=etapaInfo(p),pr=getPrazoPrincipal(p);
