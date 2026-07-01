@@ -1803,7 +1803,10 @@ function renderPainel() {
     <div class="metric"><div class="metric-label">Prazos urgentes</div><div class="metric-value" style="color:${urg>0?'var(--danger)':'inherit'}">${urg}</div><div class="metric-sub">próx. 5 dias úteis</div></div>
     <div class="metric"><div class="metric-label">Exigências abertas</div><div class="metric-value" style="color:${exigs>0?'var(--warning)':'inherit'}">${exigs}</div></div>
     <div class="metric"><div class="metric-label">A receber</div><div class="metric-value">R$${Math.round(aRec).toLocaleString('pt-BR')}</div></div>`;
-  const alertas=all.filter(p=>p.dias<=10).sort((a,b)=>a.dias-b.dias).slice(0,5);
+  // Alertas: todas as NEs/diligências (independente do prazo) + demais prazos urgentes (até 5 dias)
+  const diligencias = all.filter(p=>p.tipo==='diligencia' || p.tipo==='notificacao');
+  const demaisUrgentes = all.filter(p=>p.tipo!=='diligencia' && p.tipo!=='notificacao' && p.dias<=5);
+  const alertas = diligencias.concat(demaisUrgentes).sort((a,b)=>a.dias-b.dias);
   document.getElementById('alertas-painel').innerHTML=alertas.length?alertas.map(p=>`
     <div class="prazo-item ${pCls(p.dias)}">${pIcon(p.dias)}
       <div style="flex:1;"><div class="pname">${p.nome}</div><div class="psub">${p.proc.cliente} · ${p.proc.protocolo||'—'} · Vence ${fmtDate(p.venc)}</div></div>
