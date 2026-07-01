@@ -1813,7 +1813,7 @@ function renderPainel() {
     const [bc,bl]=etapaInfo(p),pr=getPrazoPrincipal(p);
     return`<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);">
       <div style="min-width:80px;font-size:11px;color:var(--text2);">${p.protocolo||'—'}<br><span style="color:var(--text3);">${p.interno||''}</span></div>
-      <div style="flex:1;"><div style="font-weight:500;font-size:13px;">${p.cliente}</div><div class="proc-tipo">${p.tipo}</div></div>
+      <div style="flex:1;"><div style="font-weight:500;font-size:13px;">${p.cliente}</div><div class="proc-tipo">${p.tipo==='Outro'&&p.tipo_custom ? p.tipo_custom : p.tipo}</div></div>
       <span class="badge ${bc}">${bl}</span>
       ${pr?`<span class="pdays ${dCls(pr.dias)}" style="font-size:12px;min-width:72px;text-align:right;">${daysLabel(pr.dias)}</span>`:''}
       <button class="btn" onclick="abrirDetalhe('${p.id}')">Abrir</button>
@@ -1849,7 +1849,7 @@ function renderProcessos() {
     return`<tr>
       <td class="mono">${p.protocolo||'—'}<br>${p.interno||''}</td>
       <td><div style="font-weight:500;">${p.cliente}</div><div class="proc-tipo">${p.imovel||''}</div></td>
-      <td style="color:var(--text2);">${p.tipo}</td>
+      <td style="color:var(--text2);">${p.tipo==='Outro'&&p.tipo_custom ? p.tipo_custom : p.tipo}</td>
       <td><span class="badge ${bc}">${bl}</span></td>
       <td>${p.etapa==='concluido'?'':pr?`<span class="${dCls(pr.dias,pr.tipo)}" style="font-size:12px;">${daysLabel(pr.dias)}</span>`:'—'}</td>
       <td><button class="btn" onclick="abrirDetalhe('${p.id}')">Abrir</button></td>
@@ -2714,7 +2714,7 @@ function renderFinanceiro() {
     var statusCls = totalAbertoP===0&&totalPagoP>0 ? 'b-success' : totalPagoP===0&&(p.honorarios||0)>0 ? 'b-danger' : totalPagoP>0 ? 'b-warn' : 'b-gray';
     var statusTxt = totalAbertoP===0&&totalPagoP>0 ? 'Quitado' : totalPagoP===0 ? 'Pendente' : 'Parcial';
     rows += '<tr>'
-      +'<td style="padding:10px 12px"><div style="font-weight:500">'+p.cliente+'</div><div class="proc-tipo">'+p.tipo+' \u00b7 '+(p.protocolo||'\u2014')+'</div></td>'
+      +'<td style="padding:10px 12px"><div style="font-weight:500">'+p.cliente+'</div><div class="proc-tipo">'+(p.tipo==='Outro'&&p.tipo_custom ? p.tipo_custom : p.tipo)+' \u00b7 '+(p.protocolo||'\u2014')+'</div></td>'
       +'<td style="padding:10px 12px">R$ '+(p.honorarios||0).toLocaleString('pt-BR')+'</td>'
       +'<td style="padding:10px 12px;color:var(--success)">R$ '+totalPagoP.toLocaleString('pt-BR')+'</td>'
       +'<td style="padding:10px 12px;color:'+(totalAbertoP>0?'var(--warning)':'var(--text3)')+'">R$ '+totalAbertoP.toLocaleString('pt-BR')+'</td>'
