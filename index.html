@@ -1494,15 +1494,19 @@ function getPrazosDeProtocolo(p, prot) {
   var prs = [];
   var fase = getFaseAtiva(prot);
 
-  // Always show prenotacao as prazo fatal
+  // Mostrar prenotação SOMENTE se ainda não venceu E não está em fase de Notificação
+  // (se venceu, o processo já passou dessa etapa; se está em Notificação, a prenotação não é mais relevante)
   var prenotVenc = vencimentoPrenotacao(prot.apresentacao);
+  var faseEhNotificacao = fase && fase.tipo === 'notificacao';
   if(prenotVenc) {
     var prenotDias = diasUteis(dateToStr(prenotVenc));
-    prs.push({
-      nome: 'Prenotação — prazo fatal (Prot. ' + (prot.ordem||1) + ')',
-      venc: prenotVenc, dias: prenotDias,
-      tipo: 'prenotacao_fatal', isFatal: true
-    });
+    if(prenotDias > 0 && !faseEhNotificacao) {
+      prs.push({
+        nome: 'Prenotação — prazo fatal (Prot. ' + (prot.ordem||1) + ')',
+        venc: prenotVenc, dias: prenotDias,
+        tipo: 'prenotacao_fatal', isFatal: true
+      });
+    }
   }
 
   if(!fase) {
