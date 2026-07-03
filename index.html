@@ -201,6 +201,8 @@
 
     /* Fase Notificação — cor própria (lilás) */
     .pi-notif{border-color:#d3c3ea;background:#f5f0fb;}
+    .pi-oficio-ri{border-color:#a0c4e8;background:var(--info-bg);}
+    .pd-oficio-ri{color:var(--info);}
     .pd-notif{color:#6b3fa0;}
     .b-notif{background:#f0e8fa;color:#6b3fa0;}
     .dot-notif{background:#8a5cc7;}
@@ -1421,20 +1423,23 @@ function fmtDate(d){
 function daysLabel(n){return n===0?'Vencido':n+' dia'+(n!==1?'s':'')+' útei'+(n!==1?'s':'l');}
 function pCls(n, tipo){
   if(tipo==='prenotacao') return '';
-  if(tipo==='notificacao') return 'pi-notif';
+  if(tipo==='notificacao') return n===0?'pi-danger':n<=2?'pi-danger':n<=5?'pi-warning':'pi-notif';
+  if(tipo==='oficio_ri') return 'pi-oficio-ri';
   if(n === 0) return 'pi-danger';
   return n<=2?'pi-danger':n<=5?'pi-warning':'';
 }
 function dCls(n, tipo){
-  if(n === 0 && tipo!=='notificacao') return 'pd-vencido';
+  if(n === 0 && tipo!=='oficio_ri') return 'pd-vencido';
   if(tipo==='prenotacao') return 'pd-ok';
-  if(tipo==='notificacao') return 'pd-notif';
+  if(tipo==='notificacao') return n===0?'pd-vencido':n<=2?'pd-danger':n<=5?'pd-warning':'pd-notif';
+  if(tipo==='oficio_ri') return 'pd-oficio-ri';
   if(tipo==='analise_ri') return n<=2?'pd-danger':n<=5?'pd-warning':'pd-info';
   return n<=2?'pd-danger':n<=5?'pd-warning':'pd-ok';
 }
 function pIcon(n, tipo){
   if(tipo==='prenotacao') return '<i class="ti ti-info-circle" style="font-size:16px;color:var(--text3);"></i>';
-  if(tipo==='notificacao') return '<i class="ti ti-bell" style="font-size:16px;color:#6b3fa0;"></i>';
+  if(tipo==='notificacao') return '<i class="ti ti-bell" style="font-size:16px;color:'+(n<=0?'var(--danger)':n<=5?'var(--warning)':'#6b3fa0')+'"></i>';
+  if(tipo==='oficio_ri') return '<i class="ti ti-clock" style="font-size:16px;color:var(--info);"></i>';
   if(n===0) return '<i class="ti ti-alert-circle" style="font-size:16px;color:var(--danger);"></i>';
   if(tipo==='analise_ri') {
     const c = n<=2?'var(--danger)':n<=5?'var(--warning)':'var(--info)';
@@ -1583,17 +1588,20 @@ function getPrazosDeProtocolo(p, prot) {
     });
   }
   if(fase.tipo === 'notificacao') {
-    // Fase pós-análise: prazos manuais via Setor de Ofício (oficios em aberto)
+    // Setor de Ofício: distingue responsabilidades
+    // - oficiosAbertos: minha responsabilidade (cumprir exigência) → tipo 'notificacao'
+    // - oficiosAguardandoRetorno: responsabilidade do RI (aguardar retorno) → tipo 'oficio_ri'
     var oficiosAbertos = (p.oficios||[]).filter(function(o){ return o.protocolo_id===prot.id && !o.resolvida; });
-    var oficiosResolvidosAguardandoRetorno = (p.oficios||[]).filter(function(o){
+    var oficiosAguardandoRetorno = (p.oficios||[]).filter(function(o){
       return o.protocolo_id===prot.id && o.resolvida && o.prazo_retorno_cartorio;
     });
-    if(!oficiosAbertos.length && !oficiosResolvidosAguardandoRetorno.length) {
+    if(!oficiosAbertos.length && !oficiosAguardandoRetorno.length) {
       prs.push({
-        nome: 'Notificação — aguardando retorno do cartório',
-        venc: null, dias: -1, tipo: 'notificacao', semPrazo: true
+        nome: 'Setor de Ofício — aguardando retorno do RI',
+        venc: null, dias: -1, tipo: 'oficio_ri', semPrazo: true
       });
     }
+    // Minha responsabilidade: cumprir exigência do Setor de Ofício
     oficiosAbertos.forEach(function(o) {
       if(o.prazo_cumprir) {
         prs.push({
@@ -1608,11 +1616,12 @@ function getPrazosDeProtocolo(p, prot) {
         });
       }
     });
-    oficiosResolvidosAguardandoRetorno.forEach(function(o) {
+    // Responsabilidade do RI: aguardando retorno após reingresso
+    oficiosAguardandoRetorno.forEach(function(o) {
       prs.push({
-        nome: 'Setor de Ofício — retorno do cartório ' + (o.nota_ref||''),
+        nome: 'Setor de Ofício — retorno do RI ' + (o.nota_ref||''),
         venc: new Date(o.prazo_retorno_cartorio+'T12:00:00'),
-        dias: diasUteis(o.prazo_retorno_cartorio), tipo: 'notificacao', oficioId: o.id
+        dias: diasUteis(o.prazo_retorno_cartorio), tipo: 'oficio_ri', oficioId: o.id
       });
     });
   }
@@ -1765,15 +1774,12 @@ function getPrazoPrincipal(p) {
   if(p.etapa === 'concluido') return null;
   var alertas = getPrazosAlertas(p);
   if(!alertas.length) return null;
-  // Priority: diligencia first, then analise_ri, then notificacao, sorted by urgency
   var dilig = alertas.filter(function(pr){ return pr.tipo==='diligencia'; });
-  var analise = alertas.filter(function(pr){ return pr.tipo==='analise_ri'; });
   var notif = alertas.filter(function(pr){ return pr.tipo==='notificacao' && !pr.semPrazo; });
-  // Most urgent first (lowest dias)
-  var all = dilig.concat(analise).sort(function(a,b){ return a.dias - b.dias; });
-  if(all.length) return all[0];
-  if(notif.length) { notif.sort(function(a,b){ return a.dias-b.dias; }); return notif[0]; }
-  return null;
+  var analise = alertas.filter(function(pr){ return pr.tipo==='analise_ri'; });
+  var ofRi = alertas.filter(function(pr){ return pr.tipo==='oficio_ri' && !pr.semPrazo; });
+  var all = dilig.concat(notif).concat(analise).concat(ofRi).filter(function(pr){ return !pr.semPrazo; }).sort(function(a,b){ return a.dias - b.dias; });
+  return all[0] || null;
 }
 
 function etapaInfo(p) {
@@ -1805,7 +1811,7 @@ function renderPainel() {
     <div class="metric"><div class="metric-label">A receber</div><div class="metric-value">R$${Math.round(aRec).toLocaleString('pt-BR')}</div></div>`;
   // Alertas: todas as NEs/diligências (independente do prazo) + demais prazos urgentes (até 5 dias)
   const diligencias = all.filter(p=>p.tipo==='diligencia' || p.tipo==='notificacao');
-  const demaisUrgentes = all.filter(p=>p.tipo!=='diligencia' && p.tipo!=='notificacao' && p.dias<=5);
+  const demaisUrgentes = all.filter(p=>p.tipo!=='diligencia' && p.tipo!=='notificacao' && p.tipo!=='oficio_ri' && p.dias<=5 && !p.semPrazo);
   const alertas = diligencias.concat(demaisUrgentes).sort((a,b)=>a.dias-b.dias);
   document.getElementById('alertas-painel').innerHTML=alertas.length?alertas.map(p=>`
     <div class="prazo-item ${pCls(p.dias)}">${pIcon(p.dias)}
@@ -2446,6 +2452,8 @@ function renderPrazoItem(p) {
 function renderListaPrazos(filtro) {
   var diligencias = _prazosFiltrados.filter(function(p){ return p.tipo==='diligencia'; });
   var analises = _prazosFiltrados.filter(function(p){ return p.tipo==='analise_ri'; });
+  var oficiosCumprir = _prazosFiltrados.filter(function(p){ return p.tipo==='notificacao'; });
+  var oficiosRI = _prazosFiltrados.filter(function(p){ return p.tipo==='oficio_ri'; });
 
   function applyFiltro(lista) {
     if(filtro==='v2') return lista.filter(function(p){ return p.dias<=2; });
@@ -2454,28 +2462,28 @@ function renderListaPrazos(filtro) {
     return lista;
   }
 
-  var diligFilt = applyFiltro(diligencias);
-  var analiseFilt = applyFiltro(analises);
-
   const el = document.getElementById('lista-prazos');
   if(!el) return;
-
   var html = '';
 
-  // Section 1: Diligências (NEs a cumprir)
-  html += '<div style="font-size:11px;font-weight:500;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em;">Diligências — NEs a cumprir</div>';
-  if(diligFilt.length) {
-    html += diligFilt.map(renderPrazoItem).join('');
-  } else {
-    html += '<div style="font-size:13px;color:var(--text3);padding:10px 0;margin-bottom:8px;">Nenhuma diligência pendente</div>';
-  }
+  // Seção 1: Minha responsabilidade — NEs + Setor de Ofício a cumprir
+  var minhosCompromissos = applyFiltro(diligencias).concat(applyFiltro(oficiosCumprir)).sort(function(a,b){ return a.dias-b.dias; });
+  html += '<div style="font-size:11px;font-weight:500;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em;">A cumprir — minha responsabilidade</div>';
+  if(minhosCompromissos.length) { html += minhosCompromissos.map(renderPrazoItem).join(''); }
+  else { html += '<div style="font-size:13px;color:var(--text3);padding:10px 0;margin-bottom:8px;">Nenhuma diligência pendente</div>'; }
 
-  // Section 2: Análise RI
+  // Seção 2: Análise no RI
+  var analiseFilt = applyFiltro(analises);
   html += '<div style="font-size:11px;font-weight:500;color:var(--text2);margin:16px 0 8px;text-transform:uppercase;letter-spacing:0.05em;">Análise no RI</div>';
-  if(analiseFilt.length) {
-    html += analiseFilt.map(renderPrazoItem).join('');
-  } else {
-    html += '<div style="font-size:13px;color:var(--text3);padding:10px 0;">Nenhuma análise RI pendente</div>';
+  if(analiseFilt.length) { html += analiseFilt.map(renderPrazoItem).join(''); }
+  else { html += '<div style="font-size:13px;color:var(--text3);padding:10px 0;">Nenhuma análise RI pendente</div>'; }
+
+  // Seção 3: Aguardando retorno do RI (Setor de Ofício)
+  var oficiosRIFilt = applyFiltro(oficiosRI);
+  if(oficiosRI.length) {
+    html += '<div style="font-size:11px;font-weight:500;color:var(--text2);margin:16px 0 8px;text-transform:uppercase;letter-spacing:0.05em;">Aguardando retorno do RI</div>';
+    if(oficiosRIFilt.length) { html += oficiosRIFilt.map(renderPrazoItem).join(''); }
+    else { html += '<div style="font-size:13px;color:var(--text3);padding:10px 0;">Nenhum prazo nesta faixa</div>'; }
   }
 
   el.innerHTML = html;
