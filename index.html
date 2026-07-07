@@ -1556,10 +1556,22 @@ function getPrazosDeProtocolo(p, prot) {
   // Prazo da fase atual
   // Rule: if NE is open (via exigencias), analise_ri is suppressed
   if(fase.tipo === 'analise_ri' && fase.prazo_vencimento && !temNEAberta) {
-    var d = diasUteis(fase.prazo_vencimento);
+    // Verificar se há exigência resolvida com prazo mais recente que a fase
+    // (acontece quando a fase foi criada antes do reingresso e não foi atualizada)
+    var exigsResolvidas = (p.exigencias||[]).filter(function(e){ return e.resolvida && e.novo_prazo_analise; });
+    exigsResolvidas.sort(function(a,b){ return (a.created_at||'').localeCompare(b.created_at||''); });
+    var ultimaExigResolvida = exigsResolvidas.length ? exigsResolvidas[exigsResolvidas.length-1] : null;
+    // Se a última exigência resolvida tem prazo mais recente, usa esse prazo
+    var prazoEfetivo = fase.prazo_vencimento;
+    var nomeEfetivo = 'Análise no RI' + (fase.ne_ref ? ' — pós ' + fase.ne_ref : '');
+    if(ultimaExigResolvida && ultimaExigResolvida.novo_prazo_analise > fase.prazo_vencimento) {
+      prazoEfetivo = ultimaExigResolvida.novo_prazo_analise;
+      nomeEfetivo = 'Análise no RI — pós ' + (ultimaExigResolvida.nota_ref||'NE');
+    }
+    var d = diasUteis(prazoEfetivo);
     prs.push({
-      nome: 'Análise no RI' + (fase.ne_ref ? ' — pós ' + fase.ne_ref : ''),
-      venc: new Date(fase.prazo_vencimento + 'T12:00:00'),
+      nome: nomeEfetivo,
+      venc: new Date(prazoEfetivo + 'T12:00:00'),
       dias: d, tipo: 'analise_ri'
     });
   }
