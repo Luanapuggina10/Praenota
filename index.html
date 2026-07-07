@@ -1799,6 +1799,17 @@ function etapaInfo(p) {
   return ['b-gray', p.tipo_custom || p.etapa || 'Em andamento'];
 }
 
+// Retorna {onr, interno} do protocolo ATIVO mais recente, ou fallback para campos legados
+function getNumeroProtocolo(p) {
+  var prots = (p.protocolos||[]).slice().sort(function(a,b){ return (a.ordem||0)-(b.ordem||0); });
+  var ativos = prots.filter(function(pr){ return pr.status !== 'cancelado'; });
+  var protAtivo = ativos[ativos.length-1];
+  if(protAtivo) {
+    return { onr: protAtivo.numero_onr||'—', interno: protAtivo.numero_interno||'' };
+  }
+  return { onr: p.protocolo||'—', interno: p.interno||'' };
+}
+
 // RENDER PAINEL
 function renderPainel() {
   const all=processos.flatMap(function(p){return getPrazosAlertas(p).map(function(pr){return Object.assign({},pr,{proc:p});});});
@@ -1815,14 +1826,14 @@ function renderPainel() {
   const alertas = diligencias.concat(demaisUrgentes).sort((a,b)=>a.dias-b.dias);
   document.getElementById('alertas-painel').innerHTML=alertas.length?alertas.map(p=>`
     <div class="prazo-item ${pCls(p.dias)}">${pIcon(p.dias)}
-      <div style="flex:1;"><div class="pname">${p.nome}</div><div class="psub">${p.proc.cliente} · ${p.proc.protocolo||'—'} · Vence ${fmtDate(p.venc)}</div></div>
+      <div style="flex:1;"><div class="pname">${p.nome}</div><div class="psub">${p.proc.cliente} · ${getNumeroProtocolo(p.proc).onr}${p.semPrazo?'':' · Vence '+fmtDate(p.venc)}</div></div>
       <span class="pdays ${dCls(p.dias)}">${daysLabel(p.dias)}</span>
       <button class="btn" onclick="abrirDetalhe('${p.proc.id}')">Abrir</button>
     </div>`).join(''):'<div class="empty"><i class="ti ti-circle-check"></i>Nenhum prazo urgente</div>';
   document.getElementById('recentes-painel').innerHTML=processos.slice(0,4).map(p=>{
     const [bc,bl]=etapaInfo(p),pr=getPrazoPrincipal(p);
     return`<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);">
-      <div style="min-width:80px;font-size:11px;color:var(--text2);">${p.protocolo||'—'}<br><span style="color:var(--text3);">${p.interno||''}</span></div>
+      <div style="min-width:80px;font-size:11px;color:var(--text2);">${getNumeroProtocolo(p).onr}<br><span style="color:var(--text3);">${getNumeroProtocolo(p).interno}</span></div>
       <div style="flex:1;"><div style="font-weight:500;font-size:13px;">${p.cliente}</div><div class="proc-tipo">${p.tipo==='Outro'&&p.tipo_custom ? p.tipo_custom : p.tipo}</div></div>
       <span class="badge ${bc}">${bl}</span>
       ${pr?`<span class="pdays ${dCls(pr.dias)}" style="font-size:12px;min-width:72px;text-align:right;">${daysLabel(pr.dias)}</span>`:''}
@@ -1838,7 +1849,7 @@ function renderProcessos() {
   const termoBusca = searchBar ? searchBar.value.toLowerCase() : '';
   const tipoSel = tipoFilter ? tipoFilter.value : '';
   const filtered = processos.filter(p=>{
-    const matchNome = !termoBusca || p.cliente.toLowerCase().includes(termoBusca) || (p.protocolo||'').toLowerCase().includes(termoBusca);
+    const matchNome = !termoBusca || p.cliente.toLowerCase().includes(termoBusca) || (p.protocolo||'').toLowerCase().includes(termoBusca) || getNumeroProtocolo(p).onr.toLowerCase().includes(termoBusca);
     const matchTipo = !tipoSel || p.tipo === tipoSel;
     return matchNome && matchTipo;
   }).sort(function(a, b) {
@@ -1857,7 +1868,7 @@ function renderProcessos() {
   document.getElementById('tbody-processos').innerHTML=filtered.length?filtered.map(p=>{
     const [bc,bl]=etapaInfo(p),pr=getPrazoPrincipal(p);
     return`<tr>
-      <td class="mono">${p.protocolo||'—'}<br>${p.interno||''}</td>
+      <td class="mono">${getNumeroProtocolo(p).onr}<br>${getNumeroProtocolo(p).interno}</td>
       <td><div style="font-weight:500;">${p.cliente}</div><div class="proc-tipo">${p.imovel||''}</div></td>
       <td style="color:var(--text2);">${p.tipo==='Outro'&&p.tipo_custom ? p.tipo_custom : p.tipo}</td>
       <td><span class="badge ${bc}">${bl}</span></td>
@@ -2443,7 +2454,7 @@ function renderPrazoItem(p) {
   return '<div class="prazo-item '+pCls(p.dias,p.tipo)+'">'
     +pIcon(p.dias,p.tipo)
     +'<div style="flex:1"><div class="pname">'+p.nome+'</div>'
-    +'<div class="psub">'+p.proc.cliente+' · '+(p.proc.protocolo||'—')+(p.semPrazo?'':' · Vence '+vencLabel)+'</div></div>'
+    +'<div class="psub">'+p.proc.cliente+' · '+getNumeroProtocolo(p.proc).onr+(p.semPrazo?'':' · Vence '+vencLabel)+'</div></div>'
     +(p.semPrazo?'<span style="font-size:12px;color:var(--text3)">Sem prazo</span>':'<span class="pdays '+dCls(p.dias,p.tipo)+'">'+diasLabel2+'</span>')
     +'<button class="btn" data-action="abrir-proc" data-id="'+p.proc.id+'">Abrir</button>'
     +'</div>';
@@ -2515,7 +2526,7 @@ function renderPrazos() {
       +_prazosInfo.map(function(p){
         return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);">'
           +'<i class="ti ti-info-circle" style="font-size:13px;color:var(--text3);"></i>'
-          +'<div style="flex:1;font-size:12px;">'+p.proc.cliente+' · '+(p.proc.protocolo||'—')+'</div>'
+          +'<div style="flex:1;font-size:12px;">'+p.proc.cliente+' · '+getNumeroProtocolo(p.proc).onr+'</div>'
           +'<span style="font-size:12px;color:var(--text2);">Vence '+fmtDate(p.venc)+'</span>'
           +'<span style="font-size:12px;color:'+(p.dias===0?'var(--danger)':'var(--text3)')+';">'+daysLabel(p.dias)+'</span>'
           +'<button class="btn" style="font-size:11px;" data-action="abrir-proc" data-id="'+p.proc.id+'">Abrir</button>'
