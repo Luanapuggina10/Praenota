@@ -648,6 +648,7 @@ async function salvarProcesso() {
     if(!tipo||!cliente){toast('Preencha tipo e cliente.'); if(btn){btn.disabled=false;btn.textContent='Salvar processo';} return;}
     const honStr = (document.getElementById('np-honorarios').value||'0').replace(',','.').replace(/[^0-9.]/g,'');
     const recStr = (document.getElementById('np-recebido').value||'0').replace(',','.').replace(/[^0-9.]/g,'');
+    const apresentacaoVal = document.getElementById('np-apresentacao').value || null;
     const obj = {
       user_id:currentUser.id, tipo, cliente,
       tipo_custom: tipo==='Outro' ? (document.getElementById('np-tipo-custom').value||null) : null,
@@ -655,7 +656,7 @@ async function salvarProcesso() {
       imovel:document.getElementById('np-imovel').value||null,
       protocolo:document.getElementById('np-protocolo').value||null,
       interno:document.getElementById('np-interno').value||null,
-      apresentacao:document.getElementById('np-apresentacao').value||null,
+      apresentacao:apresentacaoVal,
       honorarios:parseFloat(honStr)||0,
       recebido:parseFloat(recStr)||0,
       email_cliente:document.getElementById('np-email-cliente').value||null,
@@ -668,12 +669,57 @@ async function salvarProcesso() {
     toast('Processo salvo!');
     // criar checklist padrão se existir para o tipo
     if(data && data[0]) await criarChecklistPadrao(data[0].id, tipo);
+    // Criar automaticamente o registro em "protocolos" (+ fase inicial de análise no RI)
+    // para que o processo entre no mesmo fluxo de prazos/fases usado em todo o resto do app,
+    // evitando que ele fique preso no sistema legado sem os botões de conclusão de fase.
+    if(data && data[0]) {
+      await criarProtocoloInicial(data[0].id, {
+        numero_onr: obj.protocolo,
+        numero_interno: obj.interno,
+        apresentacao: obj.apresentacao
+      });
+    }
     await load(); navTo('processos');
   } catch(e) {
     toast('Erro: '+e.message);
     console.error('Erro catch:', e);
   } finally {
     if(btn){btn.disabled=false;btn.textContent='Salvar processo';}
+  }
+}
+
+// Cria o protocolo #1 (ativo) e, se houver data de apresentação, a fase inicial "analise_ri"
+// vinculada a ele. Usado automaticamente ao cadastrar um processo novo, para manter o
+// processo dentro do sistema novo de protocolos/fases desde o início.
+async function criarProtocoloInicial(processoId, dados) {
+  try {
+    const protObj = {
+      processo_id: processoId,
+      user_id: currentUser.id,
+      numero_onr: dados.numero_onr || null,
+      numero_interno: dados.numero_interno || null,
+      apresentacao: dados.apresentacao || null,
+      status: 'ativo',
+      ordem: 1
+    };
+    const {data: protData, error: protError} = await sb.from('protocolos').insert(protObj).select();
+    if(protError){ console.error('Erro ao criar protocolo inicial:', protError); return; }
+    const protId = protData && protData[0] ? protData[0].id : null;
+    if(protId && dados.apresentacao) {
+      const vencRI = addDiasUteis(dados.apresentacao, 10);
+      await sb.from('fases').insert({
+        protocolo_id: protId,
+        processo_id: processoId,
+        user_id: currentUser.id,
+        tipo: 'analise_ri',
+        status: 'ativo',
+        prazo_inicio: dados.apresentacao,
+        prazo_vencimento: dateToStr(vencRI),
+        ne_ref: null
+      });
+    }
+  } catch(e) {
+    console.error('Erro criarProtocoloInicial:', e);
   }
 }
 
@@ -1716,84 +1762,6 @@ function diasUteisRestantes(target) {
   return diasUteis(dateToStr(target));
 }
 
-// For alerts: exclude prenotacao informativo, include prenotacao_fatal
-function getPrazosAlertas(p) {
-  if(p.etapa === 'concluido') return [];
-  return getPrazosAtivos(p).filter(function(pr){
-    return pr.tipo !== 'prenotacao';
-  });
-}
-
-// Principal prazo for process list column
-function getPrazoPrincipal(p) {
-  if(p.etapa === 'concluido') return null;
-  var alertas = getPrazosAlertas(p);
-  if(!alertas.length) return null;
-  var dilig = alertas.filter(function(pr){ return pr.tipo==='diligencia'; });
-  var analise = alertas.filter(function(pr){ return pr.tipo==='analise_ri'; });
-  var fatal = alertas.filter(function(pr){ return pr.tipo==='prenotacao_fatal'; });
-  if(dilig.length) { dilig.sort(function(a,b){return a.dias-b.dias;}); return dilig[0]; }
-  if(analise.length) { analise.sort(function(a,b){return a.dias-b.dias;}); return analise[0]; }
-  if(fatal.length) return fatal[0];
-  return alertas[0];
-}
-
-// Prazos para ALERTAS (exclui prenotação, exclui concluído)
-function getPrazosAlertas(p) {
-  if(p.etapa === 'concluido') return [];
-  return getPrazosAtivos(p).filter(function(pr){
-    return pr.tipo !== 'prenotacao' && !pr.semPrazo;
-  });
-}
-
-// Prazos para ALERTAS incluindo NEs sem prazo definido (para lista de processos)
-function getPrazosAlertasAll(p) {
-  if(p.etapa === 'concluido') return [];
-  return getPrazosAtivos(p).filter(function(pr){ return pr.tipo !== 'prenotacao'; });
-}
-
-// Prazo principal para coluna da lista de processos
-function getPrazoPrincipal(p) {
-  if(p.etapa === 'concluido') return null;
-  var alertas = getPrazosAlertasAll(p);
-  if(!alertas.length) return null;
-  // Diligência tem prioridade absoluta sobre análise RI
-  var dilig = alertas.filter(function(pr){ return pr.tipo==='diligencia'; });
-  var analise = alertas.filter(function(pr){ return pr.tipo==='analise_ri'; });
-  if(dilig.length) {
-    // Most urgent diligencia
-    dilig.sort(function(a,b){ return a.dias-b.dias; });
-    return dilig[0];
-  }
-  if(analise.length) {
-    analise.sort(function(a,b){ return a.dias-b.dias; });
-    return analise[0];
-  }
-  return null;
-}
-
-// Prazos relevantes para ALERTAS:
-// - Exclui prenotação (sempre informativo)
-// - Exclui processos concluídos
-// - Inclui diligência e análise RI mesmo vencidos
-function getPrazosAlertas(p) {
-  if(p.etapa === 'concluido') return [];
-  return getPrazosAtivos(p).filter(function(pr){ return pr.tipo !== 'prenotacao'; });
-}
-
-// Prazo principal para exibir na coluna da lista de processos
-function getPrazoPrincipal(p) {
-  if(p.etapa === 'concluido') return null;
-  var alertas = getPrazosAlertas(p);
-  if(!alertas.length) return null;
-  var dilig = alertas.filter(function(pr){ return pr.tipo==='diligencia'; });
-  var notif = alertas.filter(function(pr){ return pr.tipo==='notificacao' && !pr.semPrazo; });
-  var analise = alertas.filter(function(pr){ return pr.tipo==='analise_ri'; });
-  var ofRi = alertas.filter(function(pr){ return pr.tipo==='oficio_ri' && !pr.semPrazo; });
-  var all = dilig.concat(notif).concat(analise).concat(ofRi).filter(function(pr){ return !pr.semPrazo; }).sort(function(a,b){ return a.dias - b.dias; });
-  return all[0] || null;
-}
-
 function etapaInfo(p) {
   const exigs = p.exigencias || [];
   const oficiosAbertos = (p.oficios||[]).filter(function(o){ return !o.resolvida; });
@@ -1820,6 +1788,33 @@ function getNumeroProtocolo(p) {
     return { onr: protAtivo.numero_onr||'—', interno: protAtivo.numero_interno||'' };
   }
   return { onr: p.protocolo||'—', interno: p.interno||'' };
+}
+
+// Prazos para ALERTAS (exclui prenotação, exclui concluído, exclui sem prazo)
+function getPrazosAlertas(p) {
+  if(p.etapa === 'concluido') return [];
+  return getPrazosAtivos(p).filter(function(pr){
+    return pr.tipo !== 'prenotacao' && !pr.semPrazo;
+  });
+}
+
+// Prazos para ALERTAS incluindo NEs sem prazo definido (para lista de processos)
+function getPrazosAlertasAll(p) {
+  if(p.etapa === 'concluido') return [];
+  return getPrazosAtivos(p).filter(function(pr){ return pr.tipo !== 'prenotacao'; });
+}
+
+// Prazo principal para coluna da lista de processos
+function getPrazoPrincipal(p) {
+  if(p.etapa === 'concluido') return null;
+  var alertas = getPrazosAlertasAll(p);
+  if(!alertas.length) return null;
+  var dilig = alertas.filter(function(pr){ return pr.tipo==='diligencia'; });
+  var notif = alertas.filter(function(pr){ return pr.tipo==='notificacao' && !pr.semPrazo; });
+  var analise = alertas.filter(function(pr){ return pr.tipo==='analise_ri'; });
+  var ofRi = alertas.filter(function(pr){ return pr.tipo==='oficio_ri' && !pr.semPrazo; });
+  var all = dilig.concat(notif).concat(analise).concat(ofRi).filter(function(pr){ return !pr.semPrazo; }).sort(function(a,b){ return a.dias - b.dias; });
+  return all[0] || null;
 }
 
 // RENDER PAINEL
