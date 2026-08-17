@@ -908,6 +908,27 @@ async function deletarParcela(id) {
   renderFinanceiro();
 }
 
+// Atalho para editar o valor de honorários/recebido direto da aba Financeiro
+// (sem precisar entrar no processo) — reaproveita o modal completo de edição do processo.
+function editarValorHonorarios(processoId) {
+  var proc = processos.find(function(p){ return p.id===processoId; });
+  if(!proc) return;
+  activeProc = proc;
+  abrirModalEdit();
+}
+
+// "Dar baixa": usado quando a negociação de honorários não se concretizou.
+// Zera honorários e recebido, e remove as parcelas já lançadas para esse processo.
+async function darBaixaHonorarios(processoId) {
+  if(!confirm('Isso vai zerar o valor de honorários deste processo e remover todas as parcelas já lançadas. Use quando a negociação não se concretizou. Confirma?')) return;
+  await sb.from('parcelas').delete().eq('processo_id', processoId);
+  const {error} = await sb.from('processos').update({honorarios:0, recebido:0}).eq('id', processoId);
+  if(error){ toast('Erro: '+error.message); return; }
+  toast('Honorários zerados.');
+  await load();
+  renderFinanceiro();
+}
+
 // ── PROTOCOLOS ────────────────────────────────────────────────────────────────
 let _editProtocoloId = null;
 
@@ -1459,8 +1480,13 @@ async function salvarEdicao() {
   toast('Processo atualizado!');
   fecharModal('modal-edit');
   await load(); activeProc=processos.find(p=>p.id===activeProc.id);
-  document.getElementById('detalhe-titulo').textContent=activeProc.cliente+' — '+activeProc.tipo;
-  renderDetalhe();
+  var paginaFinanceiroAtiva = document.getElementById('page-financeiro')?.classList.contains('active');
+  if(paginaFinanceiroAtiva) {
+    renderFinanceiro();
+  } else {
+    document.getElementById('detalhe-titulo').textContent=activeProc.cliente+' — '+activeProc.tipo;
+    renderDetalhe();
+  }
 }
 
 // PRAZOS
@@ -2227,7 +2253,10 @@ function renderEmolumentos() {
     html += '<div class="emol-block">'
       + '<div class="row-between">'
       + '<span style="font-size:12px;font-weight:600;">Protocolo '+(prot.ordem||1)+(prot.numero_onr?' — '+prot.numero_onr:'')+'</span>'
+      + '<div style="display:flex;gap:6px;">'
+      + '<button class="btn" style="font-size:11px;" data-action="relatorio-emol" data-id="'+prot.id+'"><i class="ti ti-file-text"></i> Relatório</button>'
       + '<button class="btn" style="font-size:11px;" data-action="novo-lancamento" data-id="'+prot.id+'"><i class="ti ti-plus"></i> Lançamento</button>'
+      + '</div>'
       + '</div>'
       + '<div class="emol-saldo-row">'
       + '<div class="emol-saldo-item"><div class="emol-saldo-label">Recebido</div><div class="emol-saldo-value" style="color:var(--success);">R$ '+s.recebido.toLocaleString('pt-BR')+'</div></div>'
@@ -2266,7 +2295,68 @@ function renderEmolumentos() {
     if(action==='novo-lancamento') abrirModalLancamento(id, null);
     else if(action==='editar-lancamento') editarLancamento(id);
     else if(action==='deletar-lancamento') deletarLancamento(id);
+    else if(action==='relatorio-emol') gerarRelatorioEmolumentos(id);
   };
+}
+
+// Gera um relatório em linhas (data · tipo · descrição · valor) do extrato de emolumentos
+// de um protocolo, em uma página separada pronta para imprimir/salvar em PDF e enviar ao cliente.
+function gerarRelatorioEmolumentos(protocoloId) {
+  var p = activeProc;
+  var prot = (p.protocolos||[]).find(function(pr){ return pr.id===protocoloId; });
+  if(!prot) return;
+  var lanc = getLancamentosProtocolo(prot);
+  var s = calcSaldoEmolProtocolo(prot);
+  var win = window.open('', '_blank');
+  if(!win) { toast('Seu navegador bloqueou a nova aba. Permita pop-ups para gerar o relatório.'); return; }
+
+  var linhasHTML = lanc.length ? lanc.map(function(l) {
+    var tipoLbl = l.tipo === 'recebimento' ? 'Recebido do cliente' : ('Despesa — '+(CATEGORIA_LABELS[l.categoria]||'Outro'));
+    var valorTxt = (l.tipo==='recebimento'?'+ ':'- ') + 'R$ ' + Number(l.valor).toLocaleString('pt-BR');
+    return '<tr>'
+      +'<td>'+(l.data?fmtDate(l.data):'—')+'</td>'
+      +'<td>'+tipoLbl+'</td>'
+      +'<td>'+(l.descricao||'—')+'</td>'
+      +'<td style="text-align:right;">'+valorTxt+'</td>'
+      +'</tr>';
+  }).join('') : '<tr><td colspan="4" style="text-align:center;color:#999;">Nenhum lançamento registrado.</td></tr>';
+
+  var saldoTxt = s.saldo > 0
+    ? 'Crédito de adiantamento: R$ ' + s.saldo.toLocaleString('pt-BR')
+    : s.saldo < 0
+      ? 'Valor a cobrar do cliente: R$ ' + Math.abs(s.saldo).toLocaleString('pt-BR')
+      : 'Saldo quitado';
+
+  var tipoProc = p.tipo==='Outro' && p.tipo_custom ? p.tipo_custom : p.tipo;
+
+  win.document.write(
+    '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">'
+    +'<title>Relatório de emolumentos — '+p.cliente+'</title>'
+    +'<style>'
+    +'body{font-family:Arial,Helvetica,sans-serif;padding:36px;color:#1a1a1e;max-width:720px;margin:0 auto;}'
+    +'h1{font-size:18px;margin-bottom:4px;}'
+    +'.sub{font-size:13px;color:#666;margin-bottom:24px;}'
+    +'table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px;}'
+    +'th,td{padding:8px 10px;border-bottom:1px solid #ddd;text-align:left;}'
+    +'th{background:#f5f5f5;font-size:11px;text-transform:uppercase;letter-spacing:0.03em;color:#555;}'
+    +'.totais{font-size:14px;line-height:1.8;border-top:2px solid #1a1a2e;padding-top:12px;}'
+    +'.totais b{font-weight:600;}'
+    +'.print-btn{margin-top:28px;padding:9px 18px;background:#1a1a2e;color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer;}'
+    +'@media print{.print-btn{display:none;}}'
+    +'</style></head><body>'
+    +'<h1>Relatório de emolumentos e despesas</h1>'
+    +'<div class="sub">Cliente: '+p.cliente+' &middot; Processo: '+tipoProc+' &middot; Protocolo: '+(prot.numero_onr||'—')+(prot.numero_interno?' ('+prot.numero_interno+')':'')+'</div>'
+    +'<table><thead><tr><th>Data</th><th>Tipo</th><th>Descrição</th><th style="text-align:right;">Valor</th></tr></thead>'
+    +'<tbody>'+linhasHTML+'</tbody></table>'
+    +'<div class="totais">'
+    +'Total recebido: <b>R$ '+s.recebido.toLocaleString('pt-BR')+'</b><br>'
+    +'Total de despesas: <b>R$ '+s.gasto.toLocaleString('pt-BR')+'</b><br>'
+    +saldoTxt
+    +'</div>'
+    +'<button class="print-btn" onclick="window.print()">Imprimir / Salvar como PDF</button>'
+    +'</body></html>'
+  );
+  win.document.close();
 }
 
 function renderDetalhe() {
@@ -2965,6 +3055,10 @@ function renderFinanceiro() {
       if(!a.vencimento) return 1; if(!b.vencimento) return -1;
       return a.vencimento.localeCompare(b.vencimento);
     });
+    // Processo sem honorários definidos e sem nenhuma parcela lançada: não há nada
+    // financeiro a mostrar, então não aparece na lista (evita "Pendente" falso-positivo
+    // para processos onde o valor simplesmente ainda não foi combinado/informado).
+    if((p.honorarios||0) === 0 && parcelas.length === 0) return;
     var totalPagoP = parcelas.filter(function(pa){ return !!pa.pagamento; }).reduce(function(a,pa){ return a+pa.valor; },0);
     var totalAbertoP = parcelas.filter(function(pa){ return !pa.pagamento; }).reduce(function(a,pa){ return a+pa.valor; },0);
     var statusCls = totalAbertoP===0&&totalPagoP>0 ? 'b-success' : totalPagoP===0&&(p.honorarios||0)>0 ? 'b-danger' : totalPagoP>0 ? 'b-warn' : 'b-gray';
@@ -2976,7 +3070,9 @@ function renderFinanceiro() {
       +'<td style="padding:10px 12px;color:'+(totalAbertoP>0?'var(--warning)':'var(--text3)')+'">R$ '+totalAbertoP.toLocaleString('pt-BR')+'</td>'
       +'<td style="padding:10px 12px"><span class="badge '+statusCls+'">'+statusTxt+'</span></td>'
       +'<td style="padding:10px 12px;text-align:right">'
+      +'<button class="btn" style="font-size:11px" data-action="editar-valor" data-id="'+p.id+'" title="Editar valor de honorários"><i class="ti ti-edit"></i></button> '
       +'<button class="btn" style="font-size:11px" data-action="nova-parcela" data-id="'+p.id+'"><i class="ti ti-plus"></i> Parcela</button> '
+      +((p.honorarios||0)>0 ? '<button class="btn" style="font-size:11px;color:var(--danger);border-color:#f5c6c2" data-action="dar-baixa" data-id="'+p.id+'" title="Dar baixa (negociação não concretizada)"><i class="ti ti-eraser"></i></button> ' : '')
       +'<button class="btn" style="font-size:11px" data-action="abrir-detalhe" data-id="'+p.id+'"><i class="ti ti-arrow-right" style="font-size:12px"></i></button>'
       +'</td></tr>';
     parcelas.forEach(function(pa) {
@@ -3011,6 +3107,8 @@ function renderFinanceiro() {
       else if(action==='abrir-detalhe') abrirDetalhe(id);
       else if(action==='editar-parcela') editarParcela(id);
       else if(action==='deletar-parcela') deletarParcela(id);
+      else if(action==='editar-valor') editarValorHonorarios(id);
+      else if(action==='dar-baixa') darBaixaHonorarios(id);
     };
   }
 
