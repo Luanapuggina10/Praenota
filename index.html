@@ -210,6 +210,18 @@
     /* Setor de Ofício card */
     .oficio-card{border:1px solid var(--border-med);border-radius:var(--r);padding:14px;margin-bottom:10px;background:#fbf9fd;}
     .oficio-card.vencido{border-color:#d3c3ea;}
+
+    /* Emolumentos — extrato por protocolo */
+    .emol-block{border:1px solid var(--border-med);border-radius:var(--r);padding:14px;margin-bottom:10px;background:#fbfaf6;}
+    .emol-saldo-row{display:flex;gap:16px;flex-wrap:wrap;margin:10px 0 4px;}
+    .emol-saldo-item{flex:1;min-width:110px;}
+    .emol-saldo-label{font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:0.03em;margin-bottom:2px;}
+    .emol-saldo-value{font-size:15px;font-weight:500;}
+    .emol-lanc-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px;}
+    .emol-lanc-row:last-child{border-bottom:none;}
+    .emol-tag{display:inline-block;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:500;flex-shrink:0;}
+    .emol-tag-rec{background:var(--success-bg);color:var(--success);}
+    .emol-tag-desp{background:var(--danger-bg);color:var(--danger);}
   </style>
 </head>
 <body>
@@ -341,6 +353,12 @@
           <thead><tr><th>Processo</th><th>Contratado</th><th>Recebido</th><th>A receber</th><th>Status</th><th style="text-align:right;">Ações</th></tr></thead>
           <tbody id="tbody-fin"></tbody>
         </table>
+      </div>
+
+      <div class="card" style="margin-bottom:12px;margin-top:12px;">
+        <div class="card-title">Emolumentos e despesas — saldo por processo</div>
+        <div id="fin-emol-metrics" class="metrics" style="margin-bottom:1rem;"></div>
+        <div id="fin-emol-lista"></div>
       </div>
     </div>
 
@@ -567,6 +585,37 @@
   </div>
 </div>
 
+<!-- MODAL LANÇAMENTO DE EMOLUMENTOS -->
+<div class="modal-bg" id="modal-lancamento">
+  <div class="modal" style="width:440px;">
+    <div class="modal-title" id="modal-lancamento-title">Novo lançamento</div>
+    <div class="form-grid" style="margin-bottom:1rem;">
+      <div class="field full"><label>Tipo de lançamento</label>
+        <select id="lanc-tipo" onchange="toggleLancCategoria()">
+          <option value="recebimento">Recebido do cliente (adiantamento)</option>
+          <option value="despesa">Despesa paga (a cobrar do cliente)</option>
+        </select>
+      </div>
+      <div class="field" id="lanc-categoria-field"><label>Categoria da despesa</label>
+        <select id="lanc-categoria">
+          <option value="emolumentos">Emolumentos</option>
+          <option value="certidao">Certidão</option>
+          <option value="copia">Cópia</option>
+          <option value="deslocamento">Deslocamento</option>
+          <option value="outro">Outro</option>
+        </select>
+      </div>
+      <div class="field"><label>Valor (R$)</label><input type="number" id="lanc-valor" placeholder="0"></div>
+      <div class="field"><label>Data</label><input type="date" id="lanc-data"></div>
+      <div class="field full"><label>Descrição (opcional)</label><input type="text" id="lanc-descricao" placeholder="Ex: Guia de custas do 2º RI, adiantamento inicial..."></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn" onclick="fecharModal('modal-lancamento')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarLancamento()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -624,7 +673,7 @@ window.addEventListener('load', initApp);
 
 async function load() {
   try {
-    const {data,error}=await sb.from('processos').select('*, exigencias(*, exigencia_itens(*)), checklist_docs(*), parcelas(*), protocolos(*, fases(*)), oficios(*, oficio_itens(*))').eq('user_id',currentUser.id).order('created_at',{ascending:false});
+    const {data,error}=await sb.from('processos').select('*, exigencias(*, exigencia_itens(*)), checklist_docs(*), parcelas(*), protocolos(*, fases(*), emolumentos_lancamentos(*)), oficios(*, oficio_itens(*))').eq('user_id',currentUser.id).order('created_at',{ascending:false});
     if(error){console.error('Erro load:',error);return;}
     if(data){
       // flatten exigencia_itens into top level for compatibility
@@ -1260,6 +1309,7 @@ document.getElementById('modal-parcela').addEventListener('click',function(e){if
 document.getElementById('modal-reingresso').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-reingresso');});
 document.getElementById('modal-oficio').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-oficio');});
 document.getElementById('modal-oficio-reingresso').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-oficio-reingresso');});
+document.getElementById('modal-lancamento').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-lancamento');});
 
 function selRp(k,val,cls) {
   ['eu','cli','ter','car'].forEach(x=>{const el=document.getElementById('rp-'+x);if(el)el.className='rp';});
@@ -2045,6 +2095,180 @@ function temFaseNotificacao(p) {
   return !!(prot && (prot.fases||[]).some(function(f){ return f.tipo==='notificacao'; }));
 }
 
+// ── EMOLUMENTOS / DESPESAS ──────────────────────────────────────────────────
+// Cada lançamento pertence a um protocolo (protocolo_id) e tem tipo:
+//  - 'recebimento': valor recebido do cliente (adiantamento)
+//  - 'despesa': valor pago pelo escritório (emolumentos, certidão, cópia, etc.)
+// Saldo do protocolo = total recebido - total de despesas.
+//  > 0  → ainda há crédito do adiantamento do cliente
+//  < 0  → o escritório adiantou e deve cobrar o valor do cliente
+//  = 0  → quitado
+
+const CATEGORIA_LABELS = {
+  emolumentos: 'Emolumentos', certidao: 'Certidão', copia: 'Cópia',
+  deslocamento: 'Deslocamento', outro: 'Outro'
+};
+
+function getLancamentosProtocolo(prot) {
+  return (prot.lancamentos_emolumentos || prot.emolumentos_lancamentos || []).slice().sort(function(a,b){
+    return (a.data||'').localeCompare(b.data||'') || (a.created_at||'').localeCompare(b.created_at||'');
+  });
+}
+
+function calcSaldoEmolProtocolo(prot) {
+  var lanc = getLancamentosProtocolo(prot);
+  var recebido = lanc.filter(function(l){ return l.tipo==='recebimento'; }).reduce(function(a,l){ return a+Number(l.valor||0); },0);
+  var gasto = lanc.filter(function(l){ return l.tipo==='despesa'; }).reduce(function(a,l){ return a+Number(l.valor||0); },0);
+  return { recebido: recebido, gasto: gasto, saldo: recebido - gasto };
+}
+
+function calcSaldoEmolProcesso(p) {
+  var prots = p.protocolos || [];
+  var recebido=0, gasto=0;
+  prots.forEach(function(prot){
+    var s = calcSaldoEmolProtocolo(prot);
+    recebido += s.recebido; gasto += s.gasto;
+  });
+  return { recebido: recebido, gasto: gasto, saldo: recebido - gasto };
+}
+
+function toggleLancCategoria() {
+  var tipo = document.getElementById('lanc-tipo').value;
+  document.getElementById('lanc-categoria-field').style.display = tipo === 'despesa' ? 'block' : 'none';
+}
+
+let _lancProtocoloId = null;
+let _lancEditId = null;
+
+function abrirModalLancamento(protocoloId, lancamento) {
+  _lancProtocoloId = protocoloId;
+  _lancEditId = lancamento ? lancamento.id : null;
+  document.getElementById('modal-lancamento-title').textContent = lancamento ? 'Editar lançamento' : 'Novo lançamento';
+  document.getElementById('lanc-tipo').value = lancamento ? lancamento.tipo : 'recebimento';
+  document.getElementById('lanc-categoria').value = lancamento ? (lancamento.categoria||'emolumentos') : 'emolumentos';
+  document.getElementById('lanc-valor').value = lancamento ? lancamento.valor : '';
+  document.getElementById('lanc-data').value = lancamento ? (lancamento.data||'') : new Date().toISOString().split('T')[0];
+  document.getElementById('lanc-descricao').value = lancamento ? (lancamento.descricao||'') : '';
+  toggleLancCategoria();
+  document.getElementById('modal-lancamento').classList.add('open');
+}
+
+function editarLancamento(lancId) {
+  var prot = (activeProc.protocolos||[]).find(function(pr){
+    return getLancamentosProtocolo(pr).some(function(l){ return l.id===lancId; });
+  });
+  if(!prot) return;
+  var lanc = getLancamentosProtocolo(prot).find(function(l){ return l.id===lancId; });
+  if(lanc) abrirModalLancamento(prot.id, lanc);
+}
+
+async function salvarLancamento() {
+  if(!_lancProtocoloId || !activeProc) return;
+  var valor = parseFloat(document.getElementById('lanc-valor').value);
+  if(!valor) { toast('Informe o valor do lançamento.'); return; }
+  var tipo = document.getElementById('lanc-tipo').value;
+  var obj = {
+    protocolo_id: _lancProtocoloId,
+    processo_id: activeProc.id,
+    user_id: currentUser.id,
+    tipo: tipo,
+    categoria: tipo === 'despesa' ? document.getElementById('lanc-categoria').value : null,
+    valor: valor,
+    data: document.getElementById('lanc-data').value || new Date().toISOString().split('T')[0],
+    descricao: document.getElementById('lanc-descricao').value || null
+  };
+  var error;
+  if(_lancEditId) {
+    delete obj.protocolo_id; delete obj.processo_id; delete obj.user_id;
+    ({error} = await sb.from('emolumentos_lancamentos').update(obj).eq('id', _lancEditId));
+  } else {
+    ({error} = await sb.from('emolumentos_lancamentos').insert(obj));
+  }
+  if(error) { toast('Erro: '+error.message); return; }
+  toast(_lancEditId ? 'Lançamento atualizado!' : 'Lançamento adicionado!');
+  fecharModal('modal-lancamento');
+  _lancProtocoloId = null; _lancEditId = null;
+  await load();
+  activeProc = processos.find(function(p){ return p.id===activeProc.id; });
+  renderDetalhe();
+}
+
+async function deletarLancamento(id) {
+  if(!confirm('Excluir este lançamento?')) return;
+  await sb.from('emolumentos_lancamentos').delete().eq('id', id);
+  await load();
+  activeProc = processos.find(function(p){ return p.id===activeProc.id; });
+  renderDetalhe();
+}
+
+// Renderiza o card "Emolumentos" na tela de detalhe, com um bloco de extrato por protocolo
+function renderEmolumentos() {
+  var el = document.getElementById('card-emolumentos');
+  if(!el || !activeProc) return;
+  var prots = (activeProc.protocolos||[]).slice().sort(function(a,b){ return (a.ordem||0)-(b.ordem||0); });
+
+  if(!prots.length) {
+    el.innerHTML = '<div class="card-title">Emolumentos e despesas</div><div class="empty" style="padding:1rem 0;"><i class="ti ti-coin-off"></i>Adicione um protocolo para lançar emolumentos</div>';
+    return;
+  }
+
+  var html = '<div class="card-title">Emolumentos e despesas</div>';
+
+  prots.forEach(function(prot) {
+    var lanc = getLancamentosProtocolo(prot);
+    var s = calcSaldoEmolProtocolo(prot);
+    var saldoCor = s.saldo > 0 ? 'var(--success)' : s.saldo < 0 ? 'var(--danger)' : 'var(--text2)';
+    var saldoTxt = s.saldo > 0
+      ? 'R$ '+s.saldo.toLocaleString('pt-BR')+' de crédito (adiantado)'
+      : s.saldo < 0
+        ? 'R$ '+Math.abs(s.saldo).toLocaleString('pt-BR')+' a cobrar do cliente'
+        : 'Quitado';
+
+    html += '<div class="emol-block">'
+      + '<div class="row-between">'
+      + '<span style="font-size:12px;font-weight:600;">Protocolo '+(prot.ordem||1)+(prot.numero_onr?' — '+prot.numero_onr:'')+'</span>'
+      + '<button class="btn" style="font-size:11px;" data-action="novo-lancamento" data-id="'+prot.id+'"><i class="ti ti-plus"></i> Lançamento</button>'
+      + '</div>'
+      + '<div class="emol-saldo-row">'
+      + '<div class="emol-saldo-item"><div class="emol-saldo-label">Recebido</div><div class="emol-saldo-value" style="color:var(--success);">R$ '+s.recebido.toLocaleString('pt-BR')+'</div></div>'
+      + '<div class="emol-saldo-item"><div class="emol-saldo-label">Gasto</div><div class="emol-saldo-value" style="color:var(--danger);">R$ '+s.gasto.toLocaleString('pt-BR')+'</div></div>'
+      + '<div class="emol-saldo-item"><div class="emol-saldo-label">Saldo</div><div class="emol-saldo-value" style="color:'+saldoCor+';">'+saldoTxt+'</div></div>'
+      + '</div>';
+
+    if(lanc.length) {
+      html += '<div style="margin-top:8px;">';
+      lanc.forEach(function(l) {
+        var tag = l.tipo === 'recebimento'
+          ? '<span class="emol-tag emol-tag-rec">Recebido</span>'
+          : '<span class="emol-tag emol-tag-desp">'+(CATEGORIA_LABELS[l.categoria]||'Despesa')+'</span>';
+        html += '<div class="emol-lanc-row">'
+          + tag
+          + '<span style="color:var(--text2);min-width:70px;">'+(l.data?fmtDate(l.data):'—')+'</span>'
+          + '<span style="flex:1;">'+(l.descricao||'—')+'</span>'
+          + '<span style="font-weight:500;color:'+(l.tipo==='recebimento'?'var(--success)':'var(--danger)')+';">'+(l.tipo==='recebimento'?'+':'-')+' R$ '+Number(l.valor).toLocaleString('pt-BR')+'</span>'
+          + '<button class="btn" style="font-size:10px;padding:2px 6px;" data-action="editar-lancamento" data-id="'+l.id+'"><i class="ti ti-edit" style="font-size:10px;"></i></button>'
+          + '<button class="btn" style="font-size:10px;padding:2px 6px;color:var(--danger);border-color:#f5c6c2;" data-action="deletar-lancamento" data-id="'+l.id+'"><i class="ti ti-trash" style="font-size:10px;"></i></button>'
+          + '</div>';
+      });
+      html += '</div>';
+    } else {
+      html += '<div style="font-size:12px;color:var(--text3);padding:8px 0 0;">Nenhum lançamento ainda.</div>';
+    }
+
+    html += '</div>'; // .emol-block
+  });
+
+  el.innerHTML = html;
+  el.onclick = function(e) {
+    var btn = e.target.closest('[data-action]');
+    if(!btn) return;
+    var action = btn.dataset.action, id = btn.dataset.id;
+    if(action==='novo-lancamento') abrirModalLancamento(id, null);
+    else if(action==='editar-lancamento') editarLancamento(id);
+    else if(action==='deletar-lancamento') deletarLancamento(id);
+  };
+}
+
 function renderDetalhe() {
   const p=activeProc, prazos=getPrazosAtivos(p), [bc,bl]=etapaInfo(p);
   const docs=p.checklist_docs||[], dd=docs.filter(d=>d.done).length;
@@ -2142,6 +2366,7 @@ function renderDetalhe() {
       </div>
       <textarea id="obs-textarea" style="width:100%;min-height:80px;padding:9px 11px;border:1px solid var(--border-med);border-radius:var(--r);font-size:13px;font-family:inherit;color:var(--text);background:white;resize:vertical;" placeholder="Anotações sobre o andamento do processo...">${p.observacao||''}</textarea>
     </div>
+    <div class="card" id="card-emolumentos"></div>
     ${function(){
       var protAtivo = getProtocoloAtivo(p);
       var temNotif = protAtivo && (protAtivo.fases||[]).some(function(f){ return f.tipo==='notificacao'; });
@@ -2180,6 +2405,7 @@ function renderDetalhe() {
       else if(action==='abrir-notificacao') abrirFaseNotificacao(id);
     };
   }
+  renderEmolumentos();
   renderOficios();
   // Linha do tempo: começa rolada para o final (fase atual); usuário rola para cima para ver o histórico
   var tlEl = document.getElementById('timeline-scroll');
@@ -2786,6 +3012,55 @@ function renderFinanceiro() {
       else if(action==='editar-parcela') editarParcela(id);
       else if(action==='deletar-parcela') deletarParcela(id);
     };
+  }
+
+  // ── EMOLUMENTOS E DESPESAS — visão consolidada ─────────────────────────────
+  var totRec=0, totGasto=0;
+  var linhasEmol = [];
+  processos.forEach(function(p) {
+    var s = calcSaldoEmolProcesso(p);
+    if(s.recebido===0 && s.gasto===0) return; // só lista processos com movimento
+    totRec += s.recebido; totGasto += s.gasto;
+    linhasEmol.push({proc:p, s:s});
+  });
+  var saldoGeral = totRec - totGasto;
+  var totACobrar = linhasEmol.reduce(function(a,l){ return a + (l.s.saldo<0?-l.s.saldo:0); },0);
+  var totCredito = linhasEmol.reduce(function(a,l){ return a + (l.s.saldo>0?l.s.saldo:0); },0);
+
+  var elEmolMetrics = document.getElementById('fin-emol-metrics');
+  if(elEmolMetrics) {
+    elEmolMetrics.innerHTML =
+      '<div class="metric"><div class="metric-label">Total recebido (emolumentos)</div><div class="metric-value" style="color:var(--success)">R$'+Math.round(totRec).toLocaleString('pt-BR')+'</div></div>'
+      +'<div class="metric"><div class="metric-label">Total gasto</div><div class="metric-value" style="color:var(--danger)">R$'+Math.round(totGasto).toLocaleString('pt-BR')+'</div></div>'
+      +'<div class="metric"><div class="metric-label">A cobrar do cliente</div><div class="metric-value" style="color:'+(totACobrar>0?'var(--danger)':'inherit')+'">R$'+Math.round(totACobrar).toLocaleString('pt-BR')+'</div></div>'
+      +'<div class="metric"><div class="metric-label">Crédito de adiantamento</div><div class="metric-value" style="color:'+(totCredito>0?'var(--success)':'inherit')+'">R$'+Math.round(totCredito).toLocaleString('pt-BR')+'</div></div>';
+  }
+
+  var elEmolLista = document.getElementById('fin-emol-lista');
+  if(elEmolLista) {
+    if(!linhasEmol.length) {
+      elEmolLista.innerHTML = '<div class="empty" style="padding:1rem 0"><i class="ti ti-coin-off"></i>Nenhum lançamento de emolumentos ainda</div>';
+    } else {
+      linhasEmol.sort(function(a,b){ return a.s.saldo - b.s.saldo; }); // maiores dívidas primeiro
+      var html = '<table class="tbl"><thead><tr><th>Processo</th><th>Recebido</th><th>Gasto</th><th>Saldo</th><th style="text-align:right;">Ações</th></tr></thead><tbody>';
+      linhasEmol.forEach(function(l) {
+        var saldoCor = l.s.saldo>0?'var(--success)':l.s.saldo<0?'var(--danger)':'var(--text2)';
+        var saldoTxt = l.s.saldo>0 ? 'R$ '+l.s.saldo.toLocaleString('pt-BR')+' de crédito' : l.s.saldo<0 ? 'R$ '+Math.abs(l.s.saldo).toLocaleString('pt-BR')+' a cobrar' : 'Quitado';
+        html += '<tr>'
+          +'<td><div style="font-weight:500">'+l.proc.cliente+'</div><div class="proc-tipo">'+(l.proc.tipo==='Outro'&&l.proc.tipo_custom?l.proc.tipo_custom:l.proc.tipo)+'</div></td>'
+          +'<td style="color:var(--success)">R$ '+l.s.recebido.toLocaleString('pt-BR')+'</td>'
+          +'<td style="color:var(--danger)">R$ '+l.s.gasto.toLocaleString('pt-BR')+'</td>'
+          +'<td style="color:'+saldoCor+';font-weight:500">'+saldoTxt+'</td>'
+          +'<td style="text-align:right"><button class="btn" style="font-size:11px" data-action="abrir-detalhe-emol" data-id="'+l.proc.id+'"><i class="ti ti-arrow-right" style="font-size:12px"></i> Ver extrato</button></td>'
+          +'</tr>';
+      });
+      html += '</tbody></table>';
+      elEmolLista.innerHTML = html;
+      elEmolLista.onclick = function(e) {
+        var btn = e.target.closest('[data-action="abrir-detalhe-emol"]');
+        if(btn) abrirDetalhe(btn.dataset.id);
+      };
+    }
   }
 }
 
