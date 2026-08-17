@@ -253,6 +253,7 @@
     <div class="nav-item" onclick="navTo('processos')"><i class="ti ti-folder"></i> Processos</div>
     <div class="nav-item" onclick="navTo('prazos')"><i class="ti ti-clock"></i> Prazos</div>
     <div class="nav-item" onclick="navTo('financeiro')"><i class="ti ti-coin"></i> Financeiro</div>
+    <div class="nav-item" onclick="navTo('clientes')"><i class="ti ti-users"></i> Clientes</div>
     <div class="nav-sep"></div>
     <div class="nav-item" onclick="navTo('novo-processo')"><i class="ti ti-plus"></i> Novo processo</div>
     <div class="nav-logout" onclick="doLogout()"><i class="ti ti-logout"></i> Sair</div>
@@ -362,6 +363,23 @@
       </div>
     </div>
 
+    <div class="page" id="page-clientes">
+      <div class="row-between" style="margin-bottom:1rem;">
+        <div class="page-title" style="margin-bottom:0;">Clientes</div>
+        <button class="btn btn-primary" onclick="abrirModalAcessoCliente()"><i class="ti ti-plus"></i> Novo acesso</button>
+      </div>
+      <div class="alert" style="background:var(--info-bg);border:1px solid #a0bfe0;color:var(--info);margin-bottom:1rem;">
+        <i class="ti ti-info-circle" style="font-size:16px;flex-shrink:0;"></i>
+        <div>Para dar acesso a um cliente: 1) crie o login dele no Supabase (Authentication → Add User, com e-mail e senha); 2) volte aqui e clique em "Novo acesso" para vincular esse e-mail a um processo.</div>
+      </div>
+      <div class="card" style="padding:0;">
+        <table class="tbl">
+          <thead><tr><th>Cliente (e-mail)</th><th>Processo vinculado</th><th style="text-align:right;">Ações</th></tr></thead>
+          <tbody id="tbody-clientes"></tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="page" id="page-novo-processo">
       <div class="page-title">Novo processo</div>
       <div class="card">
@@ -396,7 +414,26 @@
   </div>
 </div>
 
-<!-- MODAL PARCELA -->
+<div id="app-cliente" style="display:none;min-height:100vh;">
+  <div class="sidebar">
+    <div class="logo">Prae<span>nota</span></div>
+    <div class="nav-item active" style="cursor:default;"><i class="ti ti-folder"></i> Meus processos</div>
+    <div class="nav-logout" onclick="doLogout()" style="margin-top:auto;"><i class="ti ti-logout"></i> Sair</div>
+  </div>
+  <div class="main">
+    <div id="cliente-lista-page">
+      <div class="page-title">Meus processos</div>
+      <div id="cliente-lista"></div>
+    </div>
+    <div id="cliente-detalhe-page" style="display:none;">
+      <div class="gap-8" style="margin-bottom:1.25rem;">
+        <button class="btn" onclick="clienteVoltarLista()"><i class="ti ti-arrow-left"></i> Voltar</button>
+        <span id="cliente-detalhe-titulo" style="font-size:15px;font-weight:500;color:var(--brand);"></span>
+      </div>
+      <div id="cliente-detalhe-content"></div>
+    </div>
+  </div>
+</div>
 <div class="modal-bg" id="modal-parcela">
   <div class="modal" style="width:420px;">
     <div class="modal-title" id="modal-parcela-title">Nova parcela</div>
@@ -616,6 +653,25 @@
   </div>
 </div>
 
+<!-- MODAL NOVO ACESSO DE CLIENTE -->
+<div class="modal-bg" id="modal-acesso-cliente">
+  <div class="modal" style="width:440px;">
+    <div class="modal-title">Novo acesso de cliente</div>
+    <div class="form-grid" style="margin-bottom:1rem;">
+      <div class="field full"><label>E-mail do cliente (já cadastrado no Supabase)</label>
+        <input type="email" id="ac-email" placeholder="cliente@email.com">
+      </div>
+      <div class="field full"><label>Processo</label>
+        <select id="ac-processo"></select>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn" onclick="fecharModal('modal-acesso-cliente')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarAcessoCliente()">Vincular</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -624,6 +680,7 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let currentUser = null, processos = [], activeProc = null;
+let clienteProcessos = [], clienteActiveProc = null, isClienteMode = false;
 
 function toggleAuth() {
   const l=document.getElementById('auth-login'), r=document.getElementById('auth-register');
@@ -641,6 +698,7 @@ async function doRegister() {
 async function doLogout() {
   await sb.auth.signOut();
   document.getElementById('app').style.display='none';
+  document.getElementById('app-cliente').style.display='none';
   document.getElementById('auth-screen').style.display='flex';
 }
 function showErr(msg,ok=false) {
@@ -648,24 +706,36 @@ function showErr(msg,ok=false) {
   el.textContent=msg; el.style.color=ok?'var(--success)':'var(--danger)'; el.style.display='block';
 }
 
-async function initApp() {
-  const { data: { session } } = await sb.auth.getSession();
-  if (session) {
-    currentUser = session.user;
-    document.getElementById('auth-screen').style.display = 'none';
+// Depois do login, verifica se esta conta é um acesso de cliente (vinculado via
+// cliente_acessos) ou a conta da advogada, e mostra a interface correta.
+async function iniciarSessao(session) {
+  currentUser = session.user;
+  document.getElementById('auth-screen').style.display = 'none';
+  const { data: acessos } = await sb.from('cliente_acessos').select('id').eq('cliente_id', currentUser.id).limit(1);
+  if(acessos && acessos.length) {
+    isClienteMode = true;
+    document.getElementById('app-cliente').style.display = 'block';
+    await loadClienteProcessos();
+    renderClienteLista();
+  } else {
+    isClienteMode = false;
     document.getElementById('app').style.display = 'block';
     await load();
     renderPainel();
   }
+}
+
+async function initApp() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) {
+    await iniciarSessao(session);
+  }
   sb.auth.onAuthStateChange(async (event, session) => {
     if (session && !currentUser) {
-      currentUser = session.user;
-      document.getElementById('auth-screen').style.display = 'none';
-      document.getElementById('app').style.display = 'block';
-      await load();
-      renderPainel();
+      await iniciarSessao(session);
     } else if (!session) {
       currentUser = null;
+      isClienteMode = false;
     }
   });
 }
@@ -1331,6 +1401,7 @@ document.getElementById('modal-reingresso').addEventListener('click',function(e)
 document.getElementById('modal-oficio').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-oficio');});
 document.getElementById('modal-oficio-reingresso').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-oficio-reingresso');});
 document.getElementById('modal-lancamento').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-lancamento');});
+document.getElementById('modal-acesso-cliente').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-acesso-cliente');});
 
 function selRp(k,val,cls) {
   ['eu','cli','ter','car'].forEach(x=>{const el=document.getElementById('rp-'+x);if(el)el.className='rp';});
@@ -3162,8 +3233,205 @@ function renderFinanceiro() {
   }
 }
 
+// ── MODO CLIENTE (somente leitura) ──────────────────────────────────────────
+// Reaproveita as funções puras já existentes (getPrazosAtivos, construirTimeline,
+// etapaInfo, etc.) sobre o array clienteProcessos, que só traz os processos que
+// esta conta de cliente tem permissão de ver (garantido pelo RLS no banco — a
+// consulta abaixo não filtra por user_id porque o cliente não é o "dono").
+async function loadClienteProcessos() {
+  try {
+    const {data, error} = await sb.from('processos')
+      .select('*, exigencias(*, exigencia_itens(*)), checklist_docs(*), protocolos(*, fases(*)), oficios(*, oficio_itens(*))')
+      .order('created_at', {ascending:false});
+    if(error){ console.error('Erro loadClienteProcessos:', error); return; }
+    if(data) {
+      clienteProcessos = data.map(function(p) {
+        return Object.assign({}, p, {
+          exigencia_itens: p.exigencias ? p.exigencias.flatMap(function(e){ return e.exigencia_itens || []; }) : [],
+          oficio_itens: p.oficios ? p.oficios.flatMap(function(o){ return o.oficio_itens || []; }) : []
+        });
+      });
+    }
+  } catch(e) { console.error('Erro loadClienteProcessos catch:', e); }
+}
+
+function renderClienteLista() {
+  document.getElementById('cliente-lista-page').style.display = 'block';
+  document.getElementById('cliente-detalhe-page').style.display = 'none';
+  var el = document.getElementById('cliente-lista');
+  if(!el) return;
+  if(!clienteProcessos.length) {
+    el.innerHTML = '<div class="empty"><i class="ti ti-folder-off"></i>Nenhum processo vinculado a este acesso ainda.</div>';
+    return;
+  }
+  el.innerHTML = clienteProcessos.map(function(p) {
+    var info = etapaInfo(p), bc = info[0], bl = info[1];
+    var pr = getPrazoPrincipal(p);
+    var tipoLbl = p.tipo === 'Outro' && p.tipo_custom ? p.tipo_custom : p.tipo;
+    return '<div class="card" style="cursor:pointer;" onclick="clienteAbrirDetalhe(\''+p.id+'\')">'
+      + '<div class="row-between">'
+      + '<div><div style="font-weight:500;font-size:14px;">'+tipoLbl+'</div>'
+      + '<div class="proc-tipo">'+(p.imovel||'')+'</div></div>'
+      + '<span class="badge '+bc+'">'+bl+'</span>'
+      + '</div>'
+      + (pr ? '<div style="margin-top:10px;"><span class="'+dCls(pr.dias,pr.tipo)+'" style="font-size:12px;">'+pr.nome+' · '+daysLabel(pr.dias)+'</span></div>' : '')
+      + '</div>';
+  }).join('');
+}
+
+function clienteAbrirDetalhe(id) {
+  clienteActiveProc = clienteProcessos.find(function(p){ return p.id === id; });
+  if(!clienteActiveProc) return;
+  document.getElementById('cliente-lista-page').style.display = 'none';
+  document.getElementById('cliente-detalhe-page').style.display = 'block';
+  var p = clienteActiveProc;
+  document.getElementById('cliente-detalhe-titulo').textContent = p.tipo === 'Outro' && p.tipo_custom ? p.tipo_custom : p.tipo;
+  renderClienteDetalhe();
+}
+
+function clienteVoltarLista() {
+  clienteActiveProc = null;
+  renderClienteLista();
+}
+
+function renderClienteDetalhe() {
+  var p = clienteActiveProc;
+  var prazos = getPrazosAtivos(p);
+  var etapas = construirTimeline(p);
+  var info = etapaInfo(p), bc = info[0], bl = info[1];
+  var docs = p.checklist_docs || [];
+  var dd = docs.filter(function(d){ return d.done; }).length;
+  var dc = {done:'dot-done',active:'dot-active',exig:'dot-exig',pending:'dot-pend',cancelado:'dot-cancelado',ativo:'dot-ativo',notif:'dot-notif'};
+
+  var html = '<div class="detail-grid">'
+    + '<div class="card" style="margin-bottom:0;">'
+    + '<div class="card-title">Processo</div>'
+    + '<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Imóvel</div><div style="font-size:13px;margin-bottom:10px;">'+(p.imovel||'—')+'</div>'
+    + '<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Cartório</div><div style="font-size:13px;margin-bottom:10px;">'+(p.cartorio||'—')+'</div>'
+    + '<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Situação atual</div><span class="badge '+bc+'">'+bl+'</span>'
+    + '</div>'
+    + '<div class="card" style="margin-bottom:0;">'
+    + '<div class="card-title">Protocolo</div>'
+    + '<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Protocolo ONR</div><div class="mono" style="margin-bottom:10px;">'+getNumeroProtocolo(p).onr+'</div>'
+    + '<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Número interno</div><div class="mono">'+(getNumeroProtocolo(p).interno||'—')+'</div>'
+    + '</div>'
+    + '</div>';
+
+  html += '<div class="detail-grid">'
+    + '<div class="card" style="margin-bottom:0;"><div class="card-title">Prazos</div><div class="card-scroll">'
+    + (prazos.length ? prazos.map(function(pr) {
+        return '<div class="prazo-item '+pCls(pr.dias,pr.tipo)+'" style="margin-bottom:8px;">'+pIcon(pr.dias,pr.tipo)
+          + '<div style="flex:1;"><div class="pname" style="font-size:12px;">'+pr.nome+'</div><div class="psub">'+(pr.semPrazo?'Sem prazo definido':'Vence '+fmtDate(pr.venc))+'</div></div>'
+          + (pr.semPrazo ? '' : '<span class="pdays '+dCls(pr.dias,pr.tipo)+'">'+daysLabel(pr.dias)+'</span>')
+          + '</div>';
+      }).join('') : '<div class="empty" style="padding:0.5rem 0;">Sem prazos ativos</div>')
+    + '</div></div>'
+    + '<div class="card" style="margin-bottom:0;"><div class="card-title">Linha do tempo</div>'
+    + '<div class="tl card-scroll">' + etapas.map(function(e,i) {
+        return '<div class="tl-item"><div class="tl-dc"><div class="tl-dot '+(dc[e.e]||'dot-pend')+'"></div>'+(i<etapas.length-1?'<div class="tl-line"></div>':'')+'</div>'
+          + '<div><div class="tl-lbl" style="color:'+(e.e==='pending'?'var(--text3)':'var(--text)')+';">'+e.lbl+'</div>'+(e.dt?'<div class="tl-dt">'+e.dt+'</div>':'')+'</div></div>';
+      }).join('') + '</div></div>'
+    + '</div>';
+
+  html += '<div class="card">'
+    + '<div class="row-between" style="margin-bottom:8px;"><div class="card-title" style="margin-bottom:0;">Checklist de documentos</div><span style="font-size:11px;color:var(--text2);">'+dd+' / '+docs.length+' ok</span></div>'
+    + '<div class="prog-bar"><div class="prog-fill" style="width:'+(docs.length?Math.round(dd/docs.length*100):0)+'%;"></div></div>'
+    + '<div style="margin-top:8px;">'
+    + docs.map(function(d) {
+        return '<div class="chk-row"><div class="chk-box '+(d.done?'ck':'')+'" style="cursor:default;"></div><div><div class="chk-text '+(d.done?'done':'')+'">'+d.texto+'</div></div></div>';
+      }).join('')
+    + (!docs.length ? '<div style="font-size:13px;color:var(--text3);padding:8px 0;">Nenhum item ainda.</div>' : '')
+    + '</div></div>';
+
+  var exigs = (p.exigencias || []).slice().sort(function(a,b){ return (a.created_at||'').localeCompare(b.created_at||''); });
+  html += '<div class="card"><div class="card-title">Notas de exigência / pendências</div>';
+  if(!exigs.length) {
+    html += '<div class="empty" style="padding:1rem 0;"><i class="ti ti-circle-check"></i>Nenhuma exigência registrada</div>';
+  } else {
+    exigs.forEach(function(exig, idx) {
+      var itens = (p.exigencia_itens || []).filter(function(i){ return i.exigencia_id === exig.id; });
+      html += '<div style="border:1px solid var(--border-med);border-radius:var(--r);padding:12px;margin-bottom:10px;">'
+        + '<div style="font-weight:500;font-size:13px;">'+(exig.nota_ref||'Exigência '+(idx+1))+' · Recebida em '+fmtDate(exig.recebimento)+(exig.resolvida?' · <span style="color:var(--success)">Resolvida</span>':'')+'</div>'
+        + (exig.obs ? '<div style="font-size:12px;color:var(--text2);margin-top:4px;">'+exig.obs+'</div>' : '')
+        + '<div style="margin-top:8px;">'
+        + itens.map(function(it) {
+            return '<div class="chk-row"><div class="chk-box '+(it.done?'ck':'')+'" style="cursor:default;"></div><div style="flex:1;"><div class="chk-text '+(it.done?'done':'')+'">'+it.texto+'</div>'+(it.responsavel?'<div class="chk-resp"><span class="rtag '+(it.resp_class||'')+'">'+it.responsavel+'</span></div>':'')+'</div></div>';
+          }).join('')
+        + (!itens.length ? '<div style="font-size:12px;color:var(--text3);padding:6px 0;">Nenhuma pendência detalhada.</div>' : '')
+        + '</div></div>';
+    });
+  }
+  html += '</div>';
+
+  document.getElementById('cliente-detalhe-content').innerHTML = html;
+}
+
+// ── ADMIN: gestão de acessos de clientes ────────────────────────────────────
+let clientesAcessos = [];
+
+async function loadClientesAcessos() {
+  const {data, error} = await sb.from('cliente_acessos')
+    .select('*, processos(cliente, tipo, tipo_custom)')
+    .eq('advogado_id', currentUser.id)
+    .order('created_at', {ascending:false});
+  if(error){ console.error('Erro loadClientesAcessos:', error); return; }
+  clientesAcessos = data || [];
+}
+
+async function renderClientes() {
+  await loadClientesAcessos();
+  var el = document.getElementById('tbody-clientes');
+  if(!el) return;
+  if(!clientesAcessos.length) {
+    el.innerHTML = '<tr><td colspan="3"><div class="empty"><i class="ti ti-users"></i>Nenhum acesso de cliente cadastrado</div></td></tr>';
+    return;
+  }
+  el.innerHTML = clientesAcessos.map(function(a) {
+    var procLabel = a.processos ? ((a.processos.tipo==='Outro'&&a.processos.tipo_custom?a.processos.tipo_custom:a.processos.tipo)+' — '+a.processos.cliente) : '—';
+    return '<tr><td>'+(a.cliente_email||'—')+'</td><td>'+procLabel+'</td>'
+      + '<td style="text-align:right;"><button class="btn" style="font-size:11px;color:var(--danger);border-color:#f5c6c2" data-action="remover-acesso" data-id="'+a.id+'"><i class="ti ti-trash" style="font-size:11px;"></i></button></td></tr>';
+  }).join('');
+  el.onclick = function(e) {
+    var btn = e.target.closest('[data-action="remover-acesso"]');
+    if(btn) removerAcessoCliente(btn.dataset.id);
+  };
+}
+
+function abrirModalAcessoCliente() {
+  document.getElementById('ac-email').value = '';
+  var sel = document.getElementById('ac-processo');
+  sel.innerHTML = processos.map(function(p) {
+    var label = (p.tipo==='Outro'&&p.tipo_custom?p.tipo_custom:p.tipo)+' — '+p.cliente;
+    return '<option value="'+p.id+'">'+label+'</option>';
+  }).join('');
+  document.getElementById('modal-acesso-cliente').classList.add('open');
+}
+
+async function salvarAcessoCliente() {
+  var email = document.getElementById('ac-email').value.trim();
+  var processoId = document.getElementById('ac-processo').value;
+  if(!email || !processoId) { toast('Preencha o e-mail e selecione o processo.'); return; }
+  const {data: clienteId, error: rpcError} = await sb.rpc('get_user_id_by_email', {lookup_email: email});
+  if(rpcError) { toast('Erro ao buscar usuário: '+rpcError.message); return; }
+  if(!clienteId) { toast('Nenhum login encontrado com esse e-mail. Crie o login primeiro no Supabase (Authentication → Add User).'); return; }
+  const {error} = await sb.from('cliente_acessos').insert({
+    processo_id: processoId, cliente_id: clienteId, cliente_email: email, advogado_id: currentUser.id
+  });
+  if(error) { toast('Erro: '+error.message); return; }
+  toast('Acesso vinculado!');
+  fecharModal('modal-acesso-cliente');
+  renderClientes();
+}
+
+async function removerAcessoCliente(id) {
+  if(!confirm('Remover o acesso deste cliente a este processo?')) return;
+  await sb.from('cliente_acessos').delete().eq('id', id);
+  toast('Acesso removido.');
+  renderClientes();
+}
+
 // NAV
-const navMap={painel:0,processos:1,prazos:2,financeiro:3};
+const navMap={painel:0,processos:1,prazos:2,financeiro:3,clientes:4};
 function navTo(page) {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
@@ -3173,6 +3441,7 @@ function navTo(page) {
   else if(page==='processos')renderProcessos();
   else if(page==='prazos')renderPrazos();
   else if(page==='financeiro')renderFinanceiro();
+  else if(page==='clientes')renderClientes();
 }
 
 function toast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),3000);}
