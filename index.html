@@ -2411,8 +2411,8 @@ function renderEmolumentos() {
 
 // Gera um relatório em linhas (data · tipo · descrição · valor) do extrato de emolumentos
 // de um protocolo, em uma página separada pronta para imprimir/salvar em PDF e enviar ao cliente.
-function gerarRelatorioEmolumentos(protocoloId) {
-  var p = activeProc;
+function gerarRelatorioEmolumentos(protocoloId, procOverride) {
+  var p = procOverride || activeProc;
   var prot = (p.protocolos||[]).find(function(pr){ return pr.id===protocoloId; });
   if(!prot) return;
   var lanc = getLancamentosProtocolo(prot);
@@ -3280,7 +3280,7 @@ function renderFinanceiro() {
 async function loadClienteProcessos() {
   try {
     const {data, error} = await sb.from('processos')
-      .select('*, exigencias(*, exigencia_itens(*)), checklist_docs(*), protocolos(*, fases(*)), oficios(*, oficio_itens(*))')
+      .select('*, exigencias(*, exigencia_itens(*)), checklist_docs(*), protocolos(*, fases(*), emolumentos_lancamentos(*)), oficios(*, oficio_itens(*))')
       .order('created_at', {ascending:false});
     if(error){ console.error('Erro loadClienteProcessos:', error); return; }
     if(data) {
@@ -3374,6 +3374,8 @@ function renderClienteDetalhe() {
       }).join('') + '</div></div>'
     + '</div>';
 
+  html += '<div class="card" id="cliente-card-emolumentos"></div>';
+
   html += '<div class="card">'
     + '<div class="row-between" style="margin-bottom:8px;"><div class="card-title" style="margin-bottom:0;">Checklist de documentos</div><span style="font-size:11px;color:var(--text2);">'+dd+' / '+docs.length+' ok</span></div>'
     + '<div class="prog-bar"><div class="prog-fill" style="width:'+(docs.length?Math.round(dd/docs.length*100):0)+'%;"></div></div>'
@@ -3405,9 +3407,65 @@ function renderClienteDetalhe() {
   html += '</div>';
 
   document.getElementById('cliente-detalhe-content').innerHTML = html;
+  renderClienteEmolumentos();
 }
 
-// ── ADMIN: gestão de acessos de clientes ────────────────────────────────────
+// Emolumentos e despesas — versão somente leitura para o cliente (sem editar/lançar/excluir).
+// Se um protocolo não tiver nenhum lançamento ainda, ele simplesmente não aparece.
+function renderClienteEmolumentos() {
+  var el = document.getElementById('cliente-card-emolumentos');
+  if(!el || !clienteActiveProc) return;
+  var p = clienteActiveProc;
+  var prots = (p.protocolos || []).slice().sort(function(a,b){ return (a.ordem||0)-(b.ordem||0); });
+  var temAlgumLancamento = prots.some(function(prot){ return getLancamentosProtocolo(prot).length > 0; });
+  if(!temAlgumLancamento) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = '';
+
+  var html = '<div class="card-title">Emolumentos e despesas</div>';
+  prots.forEach(function(prot) {
+    var lanc = getLancamentosProtocolo(prot);
+    if(!lanc.length) return;
+    var s = calcSaldoEmolProtocolo(prot);
+    var saldoCor = s.saldo > 0 ? 'var(--success)' : s.saldo < 0 ? 'var(--danger)' : 'var(--text2)';
+    var saldoTxt = s.saldo > 0
+      ? 'R$ ' + s.saldo.toLocaleString('pt-BR') + ' de crédito (adiantado)'
+      : s.saldo < 0
+        ? 'R$ ' + Math.abs(s.saldo).toLocaleString('pt-BR') + ' a pagar'
+        : 'Quitado';
+
+    html += '<div class="emol-block">'
+      + '<div class="row-between">'
+      + '<span style="font-size:12px;font-weight:600;">Protocolo '+(prot.ordem||1)+(prot.numero_onr?' — '+prot.numero_onr:'')+'</span>'
+      + '<button class="btn" style="font-size:11px;" data-action="relatorio-cliente" data-id="'+prot.id+'"><i class="ti ti-file-text"></i> Relatório</button>'
+      + '</div>'
+      + '<div class="emol-saldo-row">'
+      + '<div class="emol-saldo-item"><div class="emol-saldo-label">Recebido</div><div class="emol-saldo-value" style="color:var(--success);">R$ '+s.recebido.toLocaleString('pt-BR')+'</div></div>'
+      + '<div class="emol-saldo-item"><div class="emol-saldo-label">Gasto</div><div class="emol-saldo-value" style="color:var(--danger);">R$ '+s.gasto.toLocaleString('pt-BR')+'</div></div>'
+      + '<div class="emol-saldo-item"><div class="emol-saldo-label">Saldo</div><div class="emol-saldo-value" style="color:'+saldoCor+';">'+saldoTxt+'</div></div>'
+      + '</div>'
+      + '<div style="margin-top:8px;">'
+      + lanc.map(function(l) {
+          var tag = l.tipo === 'recebimento'
+            ? '<span class="emol-tag emol-tag-rec">Recebido</span>'
+            : '<span class="emol-tag emol-tag-desp">'+(CATEGORIA_LABELS[l.categoria]||'Despesa')+'</span>';
+          return '<div class="emol-lanc-row">'
+            + tag
+            + '<span style="color:var(--text2);min-width:70px;">'+(l.data?fmtDate(l.data):'—')+'</span>'
+            + '<span style="flex:1;">'+(l.descricao||'—')+'</span>'
+            + '<span style="font-weight:500;color:'+(l.tipo==='recebimento'?'var(--success)':'var(--danger)')+';">'+(l.tipo==='recebimento'?'+':'-')+' R$ '+Number(l.valor).toLocaleString('pt-BR')+'</span>'
+            + '</div>';
+        }).join('')
+      + '</div></div>';
+  });
+
+  el.innerHTML = html;
+  el.onclick = function(e) {
+    var btn = e.target.closest('[data-action="relatorio-cliente"]');
+    if(btn) gerarRelatorioEmolumentos(btn.dataset.id, clienteActiveProc);
+  };
+}
+
+
 let clientesAcessos = [];
 
 async function loadClientesAcessos() {
