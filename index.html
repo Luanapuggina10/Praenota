@@ -661,8 +661,8 @@
       <div class="field full"><label>E-mail do cliente (já cadastrado no Supabase)</label>
         <input type="email" id="ac-email" placeholder="cliente@email.com">
       </div>
-      <div class="field full"><label>Processo</label>
-        <select id="ac-processo"></select>
+      <div class="field full"><label>Processo(s) — marque todos que este cliente deve ver</label>
+        <div id="ac-processos-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--border-med);border-radius:var(--r);padding:8px 4px;"></div>
       </div>
     </div>
     <div class="form-actions">
@@ -3399,26 +3399,30 @@ async function renderClientes() {
 
 function abrirModalAcessoCliente() {
   document.getElementById('ac-email').value = '';
-  var sel = document.getElementById('ac-processo');
-  sel.innerHTML = processos.map(function(p) {
+  var lista = document.getElementById('ac-processos-list');
+  lista.innerHTML = processos.map(function(p) {
     var label = (p.tipo==='Outro'&&p.tipo_custom?p.tipo_custom:p.tipo)+' — '+p.cliente;
-    return '<option value="'+p.id+'">'+label+'</option>';
-  }).join('');
+    return '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;font-size:13px;cursor:pointer;">'
+      + '<input type="checkbox" class="ac-processo-chk" value="'+p.id+'" style="width:15px;height:15px;">'
+      + label
+      + '</label>';
+  }).join('') || '<div style="font-size:13px;color:var(--text3);padding:8px;">Nenhum processo cadastrado ainda.</div>';
   document.getElementById('modal-acesso-cliente').classList.add('open');
 }
 
 async function salvarAcessoCliente() {
   var email = document.getElementById('ac-email').value.trim();
-  var processoId = document.getElementById('ac-processo').value;
-  if(!email || !processoId) { toast('Preencha o e-mail e selecione o processo.'); return; }
+  var idsProcessos = Array.from(document.querySelectorAll('.ac-processo-chk:checked')).map(function(chk){ return chk.value; });
+  if(!email || !idsProcessos.length) { toast('Preencha o e-mail e marque ao menos um processo.'); return; }
   const {data: clienteId, error: rpcError} = await sb.rpc('get_user_id_by_email', {lookup_email: email});
   if(rpcError) { toast('Erro ao buscar usuário: '+rpcError.message); return; }
   if(!clienteId) { toast('Nenhum login encontrado com esse e-mail. Crie o login primeiro no Supabase (Authentication → Add User).'); return; }
-  const {error} = await sb.from('cliente_acessos').insert({
-    processo_id: processoId, cliente_id: clienteId, cliente_email: email, advogado_id: currentUser.id
+  var rows = idsProcessos.map(function(processoId) {
+    return { processo_id: processoId, cliente_id: clienteId, cliente_email: email, advogado_id: currentUser.id };
   });
+  const {error} = await sb.from('cliente_acessos').upsert(rows, { onConflict: 'processo_id,cliente_id', ignoreDuplicates: true });
   if(error) { toast('Erro: '+error.message); return; }
-  toast('Acesso vinculado!');
+  toast(idsProcessos.length > 1 ? idsProcessos.length+' processos vinculados!' : 'Acesso vinculado!');
   fecharModal('modal-acesso-cliente');
   renderClientes();
 }
