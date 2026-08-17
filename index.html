@@ -255,6 +255,7 @@
     <div class="nav-item" onclick="navTo('financeiro')"><i class="ti ti-coin"></i> Financeiro</div>
     <div class="nav-item" onclick="navTo('clientes')"><i class="ti ti-users"></i> Clientes</div>
     <div class="nav-sep"></div>
+    <div class="nav-item" onclick="abrirModalTrocarSenha()"><i class="ti ti-key"></i> Alterar senha</div>
     <div class="nav-item" onclick="navTo('novo-processo')"><i class="ti ti-plus"></i> Novo processo</div>
     <div class="nav-logout" onclick="doLogout()"><i class="ti ti-logout"></i> Sair</div>
   </div>
@@ -672,6 +673,25 @@
   </div>
 </div>
 
+<!-- MODAL ALTERAR SENHA -->
+<div class="modal-bg" id="modal-trocar-senha">
+  <div class="modal" style="width:400px;">
+    <div class="modal-title">Alterar senha</div>
+    <div class="form-grid" style="margin-bottom:1rem;">
+      <div class="field full"><label>Nova senha (mínimo 6 caracteres)</label>
+        <input type="password" id="ts-nova-senha" placeholder="••••••••">
+      </div>
+      <div class="field full"><label>Confirmar nova senha</label>
+        <input type="password" id="ts-confirmar-senha" placeholder="••••••••">
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn" onclick="fecharModal('modal-trocar-senha')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarNovaSenha()">Salvar nova senha</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -704,6 +724,23 @@ async function doLogout() {
 function showErr(msg,ok=false) {
   const el=document.getElementById('auth-error');
   el.textContent=msg; el.style.color=ok?'var(--success)':'var(--danger)'; el.style.display='block';
+}
+
+function abrirModalTrocarSenha() {
+  document.getElementById('ts-nova-senha').value = '';
+  document.getElementById('ts-confirmar-senha').value = '';
+  document.getElementById('modal-trocar-senha').classList.add('open');
+}
+
+async function salvarNovaSenha() {
+  var nova = document.getElementById('ts-nova-senha').value;
+  var confirmar = document.getElementById('ts-confirmar-senha').value;
+  if(!nova || nova.length < 6) { toast('A senha precisa ter pelo menos 6 caracteres.'); return; }
+  if(nova !== confirmar) { toast('As senhas não coincidem.'); return; }
+  const {error} = await sb.auth.updateUser({ password: nova });
+  if(error) { toast('Erro: '+error.message); return; }
+  toast('Senha alterada com sucesso!');
+  fecharModal('modal-trocar-senha');
 }
 
 // Depois do login, verifica se esta conta é um acesso de cliente (vinculado via
@@ -1402,6 +1439,7 @@ document.getElementById('modal-oficio').addEventListener('click',function(e){if(
 document.getElementById('modal-oficio-reingresso').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-oficio-reingresso');});
 document.getElementById('modal-lancamento').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-lancamento');});
 document.getElementById('modal-acesso-cliente').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-acesso-cliente');});
+document.getElementById('modal-trocar-senha').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-trocar-senha');});
 
 function selRp(k,val,cls) {
   ['eu','cli','ter','car'].forEach(x=>{const el=document.getElementById('rp-'+x);if(el)el.className='rp';});
