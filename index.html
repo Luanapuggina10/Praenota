@@ -419,6 +419,7 @@
   <div class="sidebar">
     <div class="logo">Prae<span>nota</span></div>
     <div class="nav-item active" style="cursor:default;"><i class="ti ti-folder"></i> Meus processos</div>
+    <div class="nav-item" onclick="abrirModalTrocarSenha()"><i class="ti ti-key"></i> Alterar senha</div>
     <div class="nav-logout" onclick="doLogout()" style="margin-top:auto;"><i class="ti ti-logout"></i> Sair</div>
   </div>
   <div class="main">
@@ -3308,8 +3309,8 @@ function renderClienteLista() {
     var tipoLbl = p.tipo === 'Outro' && p.tipo_custom ? p.tipo_custom : p.tipo;
     return '<div class="card" style="cursor:pointer;" onclick="clienteAbrirDetalhe(\''+p.id+'\')">'
       + '<div class="row-between">'
-      + '<div><div style="font-weight:500;font-size:14px;">'+tipoLbl+'</div>'
-      + '<div class="proc-tipo">'+(p.imovel||'')+'</div></div>'
+      + '<div><div style="font-weight:500;font-size:14px;">'+(p.cliente||tipoLbl)+'</div>'
+      + '<div class="proc-tipo">'+tipoLbl+(p.imovel?' · '+p.imovel:'')+'</div></div>'
       + '<span class="badge '+bc+'">'+bl+'</span>'
       + '</div>'
       + (pr ? '<div style="margin-top:10px;"><span class="'+dCls(pr.dias,pr.tipo)+'" style="font-size:12px;">'+pr.nome+' · '+daysLabel(pr.dias)+'</span></div>' : '')
@@ -3323,7 +3324,7 @@ function clienteAbrirDetalhe(id) {
   document.getElementById('cliente-lista-page').style.display = 'none';
   document.getElementById('cliente-detalhe-page').style.display = 'block';
   var p = clienteActiveProc;
-  document.getElementById('cliente-detalhe-titulo').textContent = p.tipo === 'Outro' && p.tipo_custom ? p.tipo_custom : p.tipo;
+  document.getElementById('cliente-detalhe-titulo').textContent = p.cliente || (p.tipo === 'Outro' && p.tipo_custom ? p.tipo_custom : p.tipo);
   renderClienteDetalhe();
 }
 
@@ -3344,6 +3345,8 @@ function renderClienteDetalhe() {
   var html = '<div class="detail-grid">'
     + '<div class="card" style="margin-bottom:0;">'
     + '<div class="card-title">Processo</div>'
+    + '<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Identificação</div><div style="font-size:14px;font-weight:500;margin-bottom:10px;">'+(p.cliente||'—')+'</div>'
+    + '<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Tipo</div><div style="font-size:13px;margin-bottom:10px;">'+(p.tipo === 'Outro' && p.tipo_custom ? p.tipo_custom : p.tipo)+'</div>'
     + '<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Imóvel</div><div style="font-size:13px;margin-bottom:10px;">'+(p.imovel||'—')+'</div>'
     + '<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Cartório</div><div style="font-size:13px;margin-bottom:10px;">'+(p.cartorio||'—')+'</div>'
     + '<div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Situação atual</div><span class="badge '+bc+'">'+bl+'</span>'
