@@ -2275,6 +2275,21 @@ function calcSaldoEmolProcesso(p) {
   return { recebido: recebido, gasto: gasto, saldo: recebido - gasto };
 }
 
+// Junta os lançamentos de TODOS os protocolos do processo numa lista única, em ordem
+// cronológica — usado para exibir um único card de Emolumentos por processo (e não um
+// card por protocolo), já que reingressos/novos protocolos não devem "reiniciar" o controle.
+function getLancamentosProcesso(p) {
+  var prots = (p.protocolos || []).slice().sort(function(a,b){ return (a.ordem||0)-(b.ordem||0); });
+  var todos = [];
+  prots.forEach(function(prot) {
+    getLancamentosProtocolo(prot).forEach(function(l) {
+      todos.push(Object.assign({}, l, { _protocoloOrdem: prot.ordem || 1 }));
+    });
+  });
+  todos.sort(function(a,b){ return (a.data||'').localeCompare(b.data||'') || (a.created_at||'').localeCompare(b.created_at||''); });
+  return todos;
+}
+
 function toggleLancCategoria() {
   var tipo = document.getElementById('lanc-tipo').value;
   document.getElementById('lanc-categoria-field').style.display = tipo === 'despesa' ? 'block' : 'none';
@@ -2344,65 +2359,61 @@ async function deletarLancamento(id) {
   renderDetalhe();
 }
 
-// Renderiza o card "Emolumentos" na tela de detalhe, com um bloco de extrato por protocolo
+// Renderiza o card "Emolumentos" na tela de detalhe — um único card por processo,
+// somando os lançamentos de todos os protocolos (novos protocolos/reingressos não
+// criam um novo card; os lançamentos novos entram automaticamente no protocolo ativo).
 function renderEmolumentos() {
   var el = document.getElementById('card-emolumentos');
   if(!el || !activeProc) return;
-  var prots = (activeProc.protocolos||[]).slice().sort(function(a,b){ return (a.ordem||0)-(b.ordem||0); });
+  var p = activeProc;
+  var protAtivo = getProtocoloAtivo(p);
 
-  if(!prots.length) {
+  if(!(p.protocolos||[]).length) {
     el.innerHTML = '<div class="card-title">Emolumentos e despesas</div><div class="empty" style="padding:1rem 0;"><i class="ti ti-coin-off"></i>Adicione um protocolo para lançar emolumentos</div>';
     return;
   }
 
-  var html = '<div class="card-title">Emolumentos e despesas</div>';
+  var lanc = getLancamentosProcesso(p);
+  var s = calcSaldoEmolProcesso(p);
+  var saldoCor = s.saldo > 0 ? 'var(--success)' : s.saldo < 0 ? 'var(--danger)' : 'var(--text2)';
+  var saldoTxt = s.saldo > 0
+    ? 'R$ '+s.saldo.toLocaleString('pt-BR')+' de crédito (adiantado)'
+    : s.saldo < 0
+      ? 'R$ '+Math.abs(s.saldo).toLocaleString('pt-BR')+' a cobrar do cliente'
+      : 'Quitado';
 
-  prots.forEach(function(prot) {
-    var lanc = getLancamentosProtocolo(prot);
-    var s = calcSaldoEmolProtocolo(prot);
-    var saldoCor = s.saldo > 0 ? 'var(--success)' : s.saldo < 0 ? 'var(--danger)' : 'var(--text2)';
-    var saldoTxt = s.saldo > 0
-      ? 'R$ '+s.saldo.toLocaleString('pt-BR')+' de crédito (adiantado)'
-      : s.saldo < 0
-        ? 'R$ '+Math.abs(s.saldo).toLocaleString('pt-BR')+' a cobrar do cliente'
-        : 'Quitado';
+  var html = '<div class="row-between">'
+    + '<div class="card-title" style="margin-bottom:0;">Emolumentos e despesas</div>'
+    + '<div style="display:flex;gap:6px;">'
+    + '<button class="btn" style="font-size:11px;" data-action="relatorio-emol"><i class="ti ti-file-text"></i> Relatório</button>'
+    + (protAtivo ? '<button class="btn" style="font-size:11px;" data-action="novo-lancamento" data-id="'+protAtivo.id+'"><i class="ti ti-plus"></i> Lançamento</button>' : '')
+    + '</div>'
+    + '</div>'
+    + '<div class="emol-saldo-row">'
+    + '<div class="emol-saldo-item"><div class="emol-saldo-label">Recebido</div><div class="emol-saldo-value" style="color:var(--success);">R$ '+s.recebido.toLocaleString('pt-BR')+'</div></div>'
+    + '<div class="emol-saldo-item"><div class="emol-saldo-label">Gasto</div><div class="emol-saldo-value" style="color:var(--danger);">R$ '+s.gasto.toLocaleString('pt-BR')+'</div></div>'
+    + '<div class="emol-saldo-item"><div class="emol-saldo-label">Saldo</div><div class="emol-saldo-value" style="color:'+saldoCor+';">'+saldoTxt+'</div></div>'
+    + '</div>';
 
-    html += '<div class="emol-block">'
-      + '<div class="row-between">'
-      + '<span style="font-size:12px;font-weight:600;">Protocolo '+(prot.ordem||1)+(prot.numero_onr?' — '+prot.numero_onr:'')+'</span>'
-      + '<div style="display:flex;gap:6px;">'
-      + '<button class="btn" style="font-size:11px;" data-action="relatorio-emol" data-id="'+prot.id+'"><i class="ti ti-file-text"></i> Relatório</button>'
-      + '<button class="btn" style="font-size:11px;" data-action="novo-lancamento" data-id="'+prot.id+'"><i class="ti ti-plus"></i> Lançamento</button>'
-      + '</div>'
-      + '</div>'
-      + '<div class="emol-saldo-row">'
-      + '<div class="emol-saldo-item"><div class="emol-saldo-label">Recebido</div><div class="emol-saldo-value" style="color:var(--success);">R$ '+s.recebido.toLocaleString('pt-BR')+'</div></div>'
-      + '<div class="emol-saldo-item"><div class="emol-saldo-label">Gasto</div><div class="emol-saldo-value" style="color:var(--danger);">R$ '+s.gasto.toLocaleString('pt-BR')+'</div></div>'
-      + '<div class="emol-saldo-item"><div class="emol-saldo-label">Saldo</div><div class="emol-saldo-value" style="color:'+saldoCor+';">'+saldoTxt+'</div></div>'
-      + '</div>';
-
-    if(lanc.length) {
-      html += '<div style="margin-top:8px;">';
-      lanc.forEach(function(l) {
-        var tag = l.tipo === 'recebimento'
-          ? '<span class="emol-tag emol-tag-rec">Recebido</span>'
-          : '<span class="emol-tag emol-tag-desp">'+(CATEGORIA_LABELS[l.categoria]||'Despesa')+'</span>';
-        html += '<div class="emol-lanc-row">'
-          + tag
-          + '<span style="color:var(--text2);min-width:70px;">'+(l.data?fmtDate(l.data):'—')+'</span>'
-          + '<span style="flex:1;">'+(l.descricao||'—')+'</span>'
-          + '<span style="font-weight:500;color:'+(l.tipo==='recebimento'?'var(--success)':'var(--danger)')+';">'+(l.tipo==='recebimento'?'+':'-')+' R$ '+Number(l.valor).toLocaleString('pt-BR')+'</span>'
-          + '<button class="btn" style="font-size:10px;padding:2px 6px;" data-action="editar-lancamento" data-id="'+l.id+'"><i class="ti ti-edit" style="font-size:10px;"></i></button>'
-          + '<button class="btn" style="font-size:10px;padding:2px 6px;color:var(--danger);border-color:#f5c6c2;" data-action="deletar-lancamento" data-id="'+l.id+'"><i class="ti ti-trash" style="font-size:10px;"></i></button>'
-          + '</div>';
-      });
-      html += '</div>';
-    } else {
-      html += '<div style="font-size:12px;color:var(--text3);padding:8px 0 0;">Nenhum lançamento ainda.</div>';
-    }
-
-    html += '</div>'; // .emol-block
-  });
+  if(lanc.length) {
+    html += '<div style="margin-top:8px;">';
+    lanc.forEach(function(l) {
+      var tag = l.tipo === 'recebimento'
+        ? '<span class="emol-tag emol-tag-rec">Recebido</span>'
+        : '<span class="emol-tag emol-tag-desp">'+(CATEGORIA_LABELS[l.categoria]||'Despesa')+'</span>';
+      html += '<div class="emol-lanc-row">'
+        + tag
+        + '<span style="color:var(--text2);min-width:70px;">'+(l.data?fmtDate(l.data):'—')+'</span>'
+        + '<span style="flex:1;">'+(l.descricao||'—')+'</span>'
+        + '<span style="font-weight:500;color:'+(l.tipo==='recebimento'?'var(--success)':'var(--danger)')+';">'+(l.tipo==='recebimento'?'+':'-')+' R$ '+Number(l.valor).toLocaleString('pt-BR')+'</span>'
+        + '<button class="btn" style="font-size:10px;padding:2px 6px;" data-action="editar-lancamento" data-id="'+l.id+'"><i class="ti ti-edit" style="font-size:10px;"></i></button>'
+        + '<button class="btn" style="font-size:10px;padding:2px 6px;color:var(--danger);border-color:#f5c6c2;" data-action="deletar-lancamento" data-id="'+l.id+'"><i class="ti ti-trash" style="font-size:10px;"></i></button>'
+        + '</div>';
+    });
+    html += '</div>';
+  } else {
+    html += '<div style="font-size:12px;color:var(--text3);padding:8px 0 0;">Nenhum lançamento ainda.</div>';
+  }
 
   el.innerHTML = html;
   el.onclick = function(e) {
@@ -2412,18 +2423,16 @@ function renderEmolumentos() {
     if(action==='novo-lancamento') abrirModalLancamento(id, null);
     else if(action==='editar-lancamento') editarLancamento(id);
     else if(action==='deletar-lancamento') deletarLancamento(id);
-    else if(action==='relatorio-emol') gerarRelatorioEmolumentos(id);
+    else if(action==='relatorio-emol') gerarRelatorioEmolumentos(activeProc);
   };
 }
 
 // Gera um relatório em linhas (data · tipo · descrição · valor) do extrato de emolumentos
-// de um protocolo, em uma página separada pronta para imprimir/salvar em PDF e enviar ao cliente.
-function gerarRelatorioEmolumentos(protocoloId, procOverride) {
-  var p = procOverride || activeProc;
-  var prot = (p.protocolos||[]).find(function(pr){ return pr.id===protocoloId; });
-  if(!prot) return;
-  var lanc = getLancamentosProtocolo(prot);
-  var s = calcSaldoEmolProtocolo(prot);
+// de TODO o processo (todos os protocolos somados), em uma página separada pronta para
+// imprimir/salvar em PDF e enviar ao cliente.
+function gerarRelatorioEmolumentos(p) {
+  var lanc = getLancamentosProcesso(p);
+  var s = calcSaldoEmolProcesso(p);
   var win = window.open('', '_blank');
   if(!win) { toast('Seu navegador bloqueou a nova aba. Permita pop-ups para gerar o relatório.'); return; }
 
@@ -2462,7 +2471,7 @@ function gerarRelatorioEmolumentos(protocoloId, procOverride) {
     +'@media print{.print-btn{display:none;}}'
     +'</style></head><body>'
     +'<h1>Relatório de emolumentos e despesas</h1>'
-    +'<div class="sub">Cliente: '+p.cliente+' &middot; Processo: '+tipoProc+' &middot; Protocolo: '+(prot.numero_onr||'—')+(prot.numero_interno?' ('+prot.numero_interno+')':'')+'</div>'
+    +'<div class="sub">Cliente: '+p.cliente+' &middot; Processo: '+tipoProc+'</div>'
     +'<table><thead><tr><th>Data</th><th>Tipo</th><th>Descrição</th><th style="text-align:right;">Valor</th></tr></thead>'
     +'<tbody>'+linhasHTML+'</tbody></table>'
     +'<div class="totais">'
@@ -3423,52 +3432,45 @@ function renderClienteEmolumentos() {
   var el = document.getElementById('cliente-card-emolumentos');
   if(!el || !clienteActiveProc) return;
   var p = clienteActiveProc;
-  var prots = (p.protocolos || []).slice().sort(function(a,b){ return (a.ordem||0)-(b.ordem||0); });
-  var temAlgumLancamento = prots.some(function(prot){ return getLancamentosProtocolo(prot).length > 0; });
-  if(!temAlgumLancamento) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  var lanc = getLancamentosProcesso(p);
+  if(!lanc.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
   el.style.display = '';
 
-  var html = '<div class="card-title">Emolumentos e despesas</div>';
-  prots.forEach(function(prot) {
-    var lanc = getLancamentosProtocolo(prot);
-    if(!lanc.length) return;
-    var s = calcSaldoEmolProtocolo(prot);
-    var saldoCor = s.saldo > 0 ? 'var(--success)' : s.saldo < 0 ? 'var(--danger)' : 'var(--text2)';
-    var saldoTxt = s.saldo > 0
-      ? 'R$ ' + s.saldo.toLocaleString('pt-BR') + ' de crédito (adiantado)'
-      : s.saldo < 0
-        ? 'R$ ' + Math.abs(s.saldo).toLocaleString('pt-BR') + ' a pagar'
-        : 'Quitado';
+  var s = calcSaldoEmolProcesso(p);
+  var saldoCor = s.saldo > 0 ? 'var(--success)' : s.saldo < 0 ? 'var(--danger)' : 'var(--text2)';
+  var saldoTxt = s.saldo > 0
+    ? 'R$ ' + s.saldo.toLocaleString('pt-BR') + ' de crédito (adiantado)'
+    : s.saldo < 0
+      ? 'R$ ' + Math.abs(s.saldo).toLocaleString('pt-BR') + ' a pagar'
+      : 'Quitado';
 
-    html += '<div class="emol-block">'
-      + '<div class="row-between">'
-      + '<span style="font-size:12px;font-weight:600;">Protocolo '+(prot.ordem||1)+(prot.numero_onr?' — '+prot.numero_onr:'')+'</span>'
-      + '<button class="btn" style="font-size:11px;" data-action="relatorio-cliente" data-id="'+prot.id+'"><i class="ti ti-file-text"></i> Relatório</button>'
-      + '</div>'
-      + '<div class="emol-saldo-row">'
-      + '<div class="emol-saldo-item"><div class="emol-saldo-label">Recebido</div><div class="emol-saldo-value" style="color:var(--success);">R$ '+s.recebido.toLocaleString('pt-BR')+'</div></div>'
-      + '<div class="emol-saldo-item"><div class="emol-saldo-label">Gasto</div><div class="emol-saldo-value" style="color:var(--danger);">R$ '+s.gasto.toLocaleString('pt-BR')+'</div></div>'
-      + '<div class="emol-saldo-item"><div class="emol-saldo-label">Saldo</div><div class="emol-saldo-value" style="color:'+saldoCor+';">'+saldoTxt+'</div></div>'
-      + '</div>'
-      + '<div style="margin-top:8px;">'
-      + lanc.map(function(l) {
-          var tag = l.tipo === 'recebimento'
-            ? '<span class="emol-tag emol-tag-rec">Recebido</span>'
-            : '<span class="emol-tag emol-tag-desp">'+(CATEGORIA_LABELS[l.categoria]||'Despesa')+'</span>';
-          return '<div class="emol-lanc-row">'
-            + tag
-            + '<span style="color:var(--text2);min-width:70px;">'+(l.data?fmtDate(l.data):'—')+'</span>'
-            + '<span style="flex:1;">'+(l.descricao||'—')+'</span>'
-            + '<span style="font-weight:500;color:'+(l.tipo==='recebimento'?'var(--success)':'var(--danger)')+';">'+(l.tipo==='recebimento'?'+':'-')+' R$ '+Number(l.valor).toLocaleString('pt-BR')+'</span>'
-            + '</div>';
-        }).join('')
-      + '</div></div>';
-  });
+  var html = '<div class="row-between">'
+    + '<div class="card-title" style="margin-bottom:0;">Emolumentos e despesas</div>'
+    + '<button class="btn" style="font-size:11px;" data-action="relatorio-cliente"><i class="ti ti-file-text"></i> Relatório</button>'
+    + '</div>'
+    + '<div class="emol-saldo-row">'
+    + '<div class="emol-saldo-item"><div class="emol-saldo-label">Recebido</div><div class="emol-saldo-value" style="color:var(--success);">R$ '+s.recebido.toLocaleString('pt-BR')+'</div></div>'
+    + '<div class="emol-saldo-item"><div class="emol-saldo-label">Gasto</div><div class="emol-saldo-value" style="color:var(--danger);">R$ '+s.gasto.toLocaleString('pt-BR')+'</div></div>'
+    + '<div class="emol-saldo-item"><div class="emol-saldo-label">Saldo</div><div class="emol-saldo-value" style="color:'+saldoCor+';">'+saldoTxt+'</div></div>'
+    + '</div>'
+    + '<div style="margin-top:8px;">'
+    + lanc.map(function(l) {
+        var tag = l.tipo === 'recebimento'
+          ? '<span class="emol-tag emol-tag-rec">Recebido</span>'
+          : '<span class="emol-tag emol-tag-desp">'+(CATEGORIA_LABELS[l.categoria]||'Despesa')+'</span>';
+        return '<div class="emol-lanc-row">'
+          + tag
+          + '<span style="color:var(--text2);min-width:70px;">'+(l.data?fmtDate(l.data):'—')+'</span>'
+          + '<span style="flex:1;">'+(l.descricao||'—')+'</span>'
+          + '<span style="font-weight:500;color:'+(l.tipo==='recebimento'?'var(--success)':'var(--danger)')+';">'+(l.tipo==='recebimento'?'+':'-')+' R$ '+Number(l.valor).toLocaleString('pt-BR')+'</span>'
+          + '</div>';
+      }).join('')
+    + '</div>';
 
   el.innerHTML = html;
   el.onclick = function(e) {
     var btn = e.target.closest('[data-action="relatorio-cliente"]');
-    if(btn) gerarRelatorioEmolumentos(btn.dataset.id, clienteActiveProc);
+    if(btn) gerarRelatorioEmolumentos(clienteActiveProc);
   };
 }
 
