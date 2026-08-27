@@ -592,7 +592,7 @@
     </div>
     <div class="form-actions">
       <button class="btn" onclick="fecharModal('modal-protocolo')">Cancelar</button>
-      <button class="btn btn-primary" onclick="salvarProtocolo()">Salvar</button>
+      <button class="btn btn-primary" id="btn-salvar-protocolo" onclick="salvarProtocolo()">Salvar</button>
     </div>
   </div>
 </div>
@@ -1074,6 +1074,10 @@ document.addEventListener('change', function(e) {
 
 async function salvarProtocolo() {
   if(!activeProc) return;
+  var btn = document.getElementById('btn-salvar-protocolo');
+  if(btn && btn.disabled) return; // evita clique duplo/repetido criar o mesmo protocolo mais de uma vez
+  if(btn){ btn.disabled = true; btn.textContent = 'Salvando...'; }
+  try {
   var prots = activeProc.protocolos || [];
   var ordem = _editProtocoloId
     ? (prots.find(function(p){ return p.id===_editProtocoloId; })||{}).ordem || 1
@@ -1130,6 +1134,9 @@ async function salvarProtocolo() {
   processos = []; await load();
   activeProc = processos.find(function(p){ return p.id===activeProc.id; });
   renderDetalhe();
+  } finally {
+    if(btn){ btn.disabled = false; btn.textContent = 'Salvar'; }
+  }
 }
 
 // ── FASES ──────────────────────────────────────────────────────────────────
