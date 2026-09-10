@@ -1312,6 +1312,17 @@ async function salvarOficio() {
       protocolo_id: protAtivo ? protAtivo.id : null,
       user_id: currentUser.id
     })));
+    // O novo ofício É o retorno do RI: dá baixa nos prazos de retorno pendentes deste protocolo
+    if(!error && protAtivo) {
+      var pendentesRetorno = (activeProc.oficios||[]).filter(function(o){
+        return o.protocolo_id===protAtivo.id && o.resolvida && o.prazo_retorno_cartorio && !o.retorno_recebido;
+      });
+      for(var ir=0; ir<pendentesRetorno.length; ir++) {
+        await sb.from('oficios').update({
+          retorno_recebido: obj.recebimento || new Date().toISOString().split('T')[0]
+        }).eq('id', pendentesRetorno[ir].id);
+      }
+    }
   }
   if(error){ toast('Erro: '+error.message); return; }
   toast(window._editOficioId ? 'Registro atualizado!' : 'Registro do Setor de Ofício salvo!');
@@ -1375,6 +1386,25 @@ async function confirmarOficioReingresso() {
   if(error){ toast('Erro: '+error.message); return; }
   toast('Reingresso registrado!');
   fecharModal('modal-oficio-reingresso');
+  await load(); activeProc=processos.find(function(p){return p.id===activeProc.id;}); renderDetalhe();
+}
+
+// Baixa manual do prazo "retorno do RI" de um ofício reingressado
+async function registrarRetornoOficio(oficioId) {
+  var hoje = new Date().toISOString().split('T')[0];
+  var data = prompt('Data em que o cartório retornou (AAAA-MM-DD):', hoje);
+  if(!data) return;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(data)){ toast('Data inválida. Use o formato AAAA-MM-DD.'); return; }
+  var {error} = await sb.from('oficios').update({retorno_recebido: data}).eq('id', oficioId);
+  if(error){ toast('Erro: '+error.message); return; }
+  toast('Retorno do cartório registrado — prazo baixado.');
+  await load(); activeProc=processos.find(function(p){return p.id===activeProc.id;}); renderDetalhe();
+}
+
+async function desfazerRetornoOficio(oficioId) {
+  var {error} = await sb.from('oficios').update({retorno_recebido: null}).eq('id', oficioId);
+  if(error){ toast('Erro: '+error.message); return; }
+  toast('Baixa desfeita.');
   await load(); activeProc=processos.find(function(p){return p.id===activeProc.id;}); renderDetalhe();
 }
 
@@ -1844,7 +1874,7 @@ function getPrazosDeProtocolo(p, prot) {
     // - oficiosAguardandoRetorno: responsabilidade do RI (aguardar retorno) → tipo 'oficio_ri'
     var oficiosAbertos = (p.oficios||[]).filter(function(o){ return o.protocolo_id===prot.id && !o.resolvida; });
     var oficiosAguardandoRetorno = (p.oficios||[]).filter(function(o){
-      return o.protocolo_id===prot.id && o.resolvida && o.prazo_retorno_cartorio;
+      return o.protocolo_id===prot.id && o.resolvida && o.prazo_retorno_cartorio && !o.retorno_recebido;
     });
     if(!oficiosAbertos.length && !oficiosAguardandoRetorno.length) {
       prs.push({
@@ -2194,6 +2224,9 @@ function construirTimeline(p) {
         oficiosOrdenados.forEach(function(o, idx) {
           if(o.resolvida) {
             etapas.push({lbl:'Setor de Ofício '+(o.nota_ref||'')+' — cumprido', dt:o.data_reingresso_realizado?fmtDate(o.data_reingresso_realizado):null, e:'done', ord:o.data_reingresso_realizado||o.created_at||''});
+            if(o.retorno_recebido) {
+              etapas.push({lbl:'Setor de Ofício '+(o.nota_ref||'')+' — retorno do cartório recebido', dt:fmtDate(o.retorno_recebido), e:'done', ord:o.retorno_recebido});
+            }
           } else {
             etapas.push({lbl:'Setor de Ofício '+(o.nota_ref||'')+' — em aberto', dt:o.recebimento?fmtDate(o.recebimento):null, e:'notif', ord:o.recebimento||o.created_at||''});
           }
@@ -2675,7 +2708,8 @@ function renderOficios() {
   if(!el)return;
   const oficios=p.oficios||[];
   const abertos=oficios.filter(o=>!o.resolvida);
-  const aguardandoRetorno=oficios.filter(o=>o.resolvida && o.prazo_retorno_cartorio);
+  const aguardandoRetorno=oficios.filter(o=>o.resolvida && o.prazo_retorno_cartorio && !o.retorno_recebido);
+  const retornoRecebido=oficios.filter(o=>o.resolvida && o.prazo_retorno_cartorio && o.retorno_recebido);
 
   let html=`<div class="row-between" style="margin-bottom:12px;">
     <div class="card-title" style="margin-bottom:0;">Setor de Ofício</div>
@@ -2753,6 +2787,20 @@ function renderOficios() {
           <div style="font-size:11px;color:var(--text2);">Aguardando retorno do cartório</div>
         </div>
         <span style="font-size:12px;font-weight:500;color:#6b3fa0;">${fmtDate(of.prazo_retorno_cartorio)} · ${daysLabel(diasRet)}</span>
+        <button class="btn" style="font-size:11px;padding:3px 8px;flex-shrink:0;" onclick="registrarRetornoOficio('${of.id}')"><i class="ti ti-circle-check" style="font-size:11px"></i> Registrar retorno</button>
+      </div>
+    </div>`;
+  });
+
+  retornoRecebido.forEach((of)=>{
+    html+=`<div class="oficio-card" style="background:white;opacity:.75;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <i class="ti ti-circle-check" style="font-size:16px;color:var(--success);flex-shrink:0;"></i>
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:500;">${of.nota_ref||'Ofício'} — Retorno do cartório recebido</div>
+          <div style="font-size:11px;color:var(--text2);">Reingresso em ${fmtDate(of.data_reingresso_realizado)} · retorno em ${fmtDate(of.retorno_recebido)}</div>
+        </div>
+        <button class="btn" style="font-size:11px;padding:3px 8px;flex-shrink:0;" onclick="desfazerRetornoOficio('${of.id}')">Desfazer</button>
       </div>
     </div>`;
   });
