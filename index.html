@@ -358,7 +358,10 @@
       </div>
 
       <div class="card" style="margin-bottom:12px;margin-top:12px;">
-        <div class="card-title">Emolumentos e despesas — saldo por processo</div>
+        <div class="row-between" style="margin-bottom:0.75rem;">
+          <div class="card-title" style="margin-bottom:0;">Emolumentos e despesas — saldo por processo</div>
+          <button class="btn" style="font-size:12px;" onclick="abrirModalRelatorioCliente(null)"><i class="ti ti-file-text"></i> Relatório por cliente</button>
+        </div>
         <div id="fin-emol-metrics" class="metrics" style="margin-bottom:1rem;"></div>
         <div id="fin-emol-lista"></div>
       </div>
@@ -651,6 +654,25 @@
     <div class="form-actions">
       <button class="btn" onclick="fecharModal('modal-lancamento')">Cancelar</button>
       <button class="btn btn-primary" onclick="salvarLancamento()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL RELATÓRIO DE EMOLUMENTOS POR CLIENTE -->
+<div class="modal-bg" id="modal-relatorio-cliente">
+  <div class="modal" style="width:500px;">
+    <div class="modal-title">Relatório de emolumentos por cliente</div>
+    <div class="form-grid" style="margin-bottom:1rem;">
+      <div class="field full"><label>Cliente</label>
+        <select id="relcli-cliente" onchange="renderRelCliProcessos()"></select>
+      </div>
+      <div class="field full"><label>Processos incluídos no relatório</label>
+        <div id="relcli-processos" style="max-height:260px;overflow-y:auto;border:1px solid var(--border-med);border-radius:var(--r);padding:8px 4px;"></div>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn" onclick="fecharModal('modal-relatorio-cliente')">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarRelatorioCliente()"><i class="ti ti-file-text"></i> Gerar relatório</button>
     </div>
   </div>
 </div>
@@ -2518,6 +2540,169 @@ function gerarRelatorioEmolumentos(p) {
   win.document.close();
 }
 
+// ── RELATÓRIO DE EMOLUMENTOS POR CLIENTE ────────────────────────────────────
+// Agrupa os processos pelo campo `cliente`. A comparação ignora maiúsculas, acentos e
+// espaços extras, para que "Graziano" e "graziano " caiam no mesmo cliente. Como o nome
+// pode ter sido digitado de formas diferentes em processos distintos, o modal lista
+// também os demais processos com movimento, para incluí-los manualmente se preciso.
+function normNomeCliente(n) {
+  return String(n||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim().toLowerCase();
+}
+function escRel(t) {
+  return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmtBRL(v) {
+  return 'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function procsComEmolumentos() {
+  return processos.filter(function(p){ return getLancamentosProcesso(p).length > 0; });
+}
+function rotuloProcesso(p) {
+  var tipo = p.tipo==='Outro' && p.tipo_custom ? p.tipo_custom : p.tipo;
+  return (tipo||'Processo') + (p.imovel ? ' — ' + p.imovel : '');
+}
+
+function abrirModalRelatorioCliente(procIdPreSelecionado) {
+  var procs = procsComEmolumentos();
+  if(!procs.length) { toast('Nenhum processo com lançamentos de emolumentos.'); return; }
+  // Um item por nome normalizado; o rótulo exibido é a grafia mais frequente
+  var grupos = {};
+  procs.forEach(function(p) {
+    var k = normNomeCliente(p.cliente);
+    if(!grupos[k]) grupos[k] = { key:k, grafias:{}, qtd:0 };
+    grupos[k].grafias[p.cliente] = (grupos[k].grafias[p.cliente]||0) + 1;
+    grupos[k].qtd++;
+  });
+  var lista = Object.keys(grupos).map(function(k) {
+    var g = grupos[k];
+    g.label = Object.keys(g.grafias).sort(function(a,b){ return g.grafias[b]-g.grafias[a]; })[0];
+    return g;
+  }).sort(function(a,b){ return a.label.localeCompare(b.label,'pt-BR'); });
+
+  var sel = document.getElementById('relcli-cliente');
+  sel.innerHTML = lista.map(function(g) {
+    return '<option value="'+escRel(g.key)+'">'+escRel(g.label)+' ('+g.qtd+' processo'+(g.qtd>1?'s':'')+')</option>';
+  }).join('');
+  if(procIdPreSelecionado) {
+    var pp = processos.find(function(x){ return x.id===procIdPreSelecionado; });
+    if(pp) sel.value = normNomeCliente(pp.cliente);
+  }
+  renderRelCliProcessos();
+  document.getElementById('modal-relatorio-cliente').classList.add('open');
+}
+
+function renderRelCliProcessos() {
+  var key = document.getElementById('relcli-cliente').value;
+  var procs = procsComEmolumentos();
+  var doCliente = procs.filter(function(p){ return normNomeCliente(p.cliente)===key; });
+  var outros = procs.filter(function(p){ return normNomeCliente(p.cliente)!==key; })
+    .sort(function(a,b){ return String(a.cliente||'').localeCompare(String(b.cliente||''),'pt-BR'); });
+  function linha(p, marcado) {
+    var s = calcSaldoEmolProcesso(p);
+    var saldoTxt = s.saldo>0 ? fmtBRL(s.saldo)+' crédito' : s.saldo<0 ? fmtBRL(-s.saldo)+' a cobrar' : 'quitado';
+    return '<label style="display:flex;gap:8px;align-items:flex-start;padding:5px 6px;font-size:13px;cursor:pointer;">'
+      + '<input type="checkbox" class="relcli-chk" value="'+p.id+'"'+(marcado?' checked':'')+' style="margin-top:2px;">'
+      + '<span><b style="font-weight:500;">'+escRel(p.cliente)+'</b> · '+escRel(rotuloProcesso(p))
+      + '<br><span style="font-size:11px;color:var(--text2);">'+saldoTxt+'</span></span></label>';
+  }
+  var html = doCliente.map(function(p){ return linha(p,true); }).join('');
+  if(outros.length) {
+    html += '<div style="font-size:11px;color:var(--text3);padding:10px 6px 4px;text-transform:uppercase;letter-spacing:0.03em;">Outros processos (marque se forem do mesmo cliente)</div>'
+      + outros.map(function(p){ return linha(p,false); }).join('');
+  }
+  document.getElementById('relcli-processos').innerHTML = html;
+}
+
+function confirmarRelatorioCliente() {
+  var ids = Array.prototype.map.call(document.querySelectorAll('.relcli-chk:checked'), function(c){ return c.value; });
+  if(!ids.length) { toast('Selecione ao menos um processo.'); return; }
+  var procs = processos.filter(function(p){ return ids.indexOf(p.id) >= 0; });
+  var sel = document.getElementById('relcli-cliente');
+  var nome = sel.options[sel.selectedIndex].text.replace(/\s*\(\d+ processos?\)$/,'');
+  gerarRelatorioEmolumentosCliente(nome, procs);
+  fecharModal('modal-relatorio-cliente');
+}
+
+// Relatório consolidado: resumo por processo, extrato de cada processo com subtotal
+// e totais gerais. O saldo de cada processo aparece separado do saldo geral.
+function gerarRelatorioEmolumentosCliente(nomeCliente, procs) {
+  var win = window.open('', '_blank');
+  if(!win) { toast('Seu navegador bloqueou a nova aba. Permita pop-ups para gerar o relatório.'); return; }
+  procs = procs.slice().sort(function(a,b){ return rotuloProcesso(a).localeCompare(rotuloProcesso(b),'pt-BR'); });
+
+  function saldoLbl(v) { return v>0 ? 'Crédito: '+fmtBRL(v) : v<0 ? 'A cobrar: '+fmtBRL(-v) : 'Quitado'; }
+  var totRec=0, totGasto=0, resumo='', secoes='';
+
+  procs.forEach(function(p, i) {
+    var lanc = getLancamentosProcesso(p);
+    var s = calcSaldoEmolProcesso(p);
+    totRec += s.recebido; totGasto += s.gasto;
+    var prots = (p.protocolos||[]).slice().sort(function(a,b){ return (a.ordem||0)-(b.ordem||0); })
+      .map(function(pr){ return pr.numero_onr || pr.numero_interno; }).filter(Boolean);
+    var titulo = (i+1)+'. '+escRel(rotuloProcesso(p));
+    var nomeProc = normNomeCliente(p.cliente)!==normNomeCliente(nomeCliente) ? escRel(p.cliente)+' · ' : '';
+
+    resumo += '<tr><td>'+titulo+'</td>'
+      +'<td style="text-align:right;">'+fmtBRL(s.recebido)+'</td>'
+      +'<td style="text-align:right;">'+fmtBRL(s.gasto)+'</td>'
+      +'<td style="text-align:right;">'+saldoLbl(s.saldo)+'</td></tr>';
+
+    var linhas = lanc.map(function(l) {
+      var tipoLbl = l.tipo==='recebimento' ? 'Recebido do cliente' : ('Despesa — '+(CATEGORIA_LABELS[l.categoria]||'Outro'));
+      return '<tr><td>'+(l.data?fmtDate(l.data):'—')+'</td><td>'+tipoLbl+'</td><td>'+escRel(l.descricao||'—')+'</td>'
+        +'<td style="text-align:right;white-space:nowrap;">'+(l.tipo==='recebimento'?'+ ':'- ')+fmtBRL(l.valor)+'</td></tr>';
+    }).join('');
+
+    secoes += '<div class="secao">'
+      +'<h2>'+titulo+'</h2>'
+      +'<div class="sub">'+nomeProc+(p.cartorio?escRel(p.cartorio)+' · ':'')+'Protocolo(s): '+(prots.length?escRel(prots.join(', ')):'—')+'</div>'
+      +'<table><thead><tr><th>Data</th><th>Tipo</th><th>Descrição</th><th style="text-align:right;">Valor</th></tr></thead>'
+      +'<tbody>'+linhas+'</tbody>'
+      +'<tfoot><tr><td colspan="3">Recebido '+fmtBRL(s.recebido)+' · Despesas '+fmtBRL(s.gasto)+'</td><td style="text-align:right;">'+saldoLbl(s.saldo)+'</td></tr></tfoot>'
+      +'</table></div>';
+  });
+
+  var saldoGeral = totRec - totGasto;
+  var saldoGeralTxt = saldoGeral>0 ? 'Crédito de adiantamento: <b>'+fmtBRL(saldoGeral)+'</b>'
+    : saldoGeral<0 ? 'Valor a cobrar do cliente: <b>'+fmtBRL(-saldoGeral)+'</b>' : '<b>Saldo quitado</b>';
+  var hoje = new Date();
+  var emitido = String(hoje.getDate()).padStart(2,'0')+'/'+String(hoje.getMonth()+1).padStart(2,'0')+'/'+hoje.getFullYear();
+
+  win.document.write(
+    '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">'
+    +'<title>Relatório de emolumentos — '+escRel(nomeCliente)+'</title>'
+    +'<style>'
+    +'body{font-family:Arial,Helvetica,sans-serif;padding:36px;color:#1a1a1e;max-width:760px;margin:0 auto;}'
+    +'h1{font-size:18px;margin-bottom:4px;}'
+    +'h2{font-size:14px;margin:0 0 2px;}'
+    +'.sub{font-size:12px;color:#666;margin-bottom:10px;}'
+    +'.cab{font-size:13px;color:#666;margin-bottom:24px;}'
+    +'.bloco-titulo{font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#555;margin:24px 0 8px;font-weight:600;}'
+    +'table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px;}'
+    +'th,td{padding:7px 10px;border-bottom:1px solid #ddd;text-align:left;vertical-align:top;}'
+    +'th{background:#f5f5f5;font-size:11px;text-transform:uppercase;letter-spacing:0.03em;color:#555;}'
+    +'tfoot td{font-weight:600;background:#fafafa;border-bottom:none;}'
+    +'.secao{margin-bottom:22px;page-break-inside:avoid;}'
+    +'.totais{font-size:14px;line-height:1.8;border-top:2px solid #1a1a2e;padding-top:12px;margin-top:8px;}'
+    +'.obs{font-size:11px;color:#888;margin-top:10px;}'
+    +'.print-btn{margin-top:28px;padding:9px 18px;background:#1a1a2e;color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer;}'
+    +'@media print{.print-btn{display:none;} body{padding:0;}}'
+    +'</style></head><body>'
+    +'<h1>Relatório de emolumentos e despesas</h1>'
+    +'<div class="cab">Cliente: <b>'+escRel(nomeCliente)+'</b> &middot; '+procs.length+' processo'+(procs.length>1?'s':'')+' &middot; Emitido em '+emitido+'</div>'
+    +'<div class="bloco-titulo">Resumo por processo</div>'
+    +'<table><thead><tr><th>Processo</th><th style="text-align:right;">Recebido</th><th style="text-align:right;">Despesas</th><th style="text-align:right;">Saldo</th></tr></thead>'
+    +'<tbody>'+resumo+'</tbody></table>'
+    +'<div class="totais">Total recebido: <b>'+fmtBRL(totRec)+'</b><br>Total de despesas: <b>'+fmtBRL(totGasto)+'</b><br>'+saldoGeralTxt+'</div>'
+    +'<div class="obs">O saldo geral soma os saldos de todos os processos. O detalhamento de cada processo segue abaixo.</div>'
+    +'<div class="bloco-titulo">Extrato por processo</div>'
+    +secoes
+    +'<button class="print-btn" onclick="window.print()">Imprimir / Salvar como PDF</button>'
+    +'</body></html>'
+  );
+  win.document.close();
+}
+
 function renderDetalhe() {
   const p=activeProc, prazos=getPrazosAtivos(p), [bc,bl]=etapaInfo(p);
   const docs=p.checklist_docs||[], dd=docs.filter(d=>d.done).length;
@@ -3323,12 +3508,14 @@ function renderFinanceiro() {
           +'<td style="color:var(--success)">R$ '+l.s.recebido.toLocaleString('pt-BR')+'</td>'
           +'<td style="color:var(--danger)">R$ '+l.s.gasto.toLocaleString('pt-BR')+'</td>'
           +'<td style="color:'+saldoCor+';font-weight:500">'+saldoTxt+'</td>'
-          +'<td style="text-align:right"><button class="btn" style="font-size:11px" data-action="abrir-detalhe-emol" data-id="'+l.proc.id+'"><i class="ti ti-arrow-right" style="font-size:12px"></i> Ver extrato</button></td>'
+          +'<td style="text-align:right"><button class="btn" style="font-size:11px" data-action="relatorio-cliente-emol" data-id="'+l.proc.id+'" title="Relatório consolidado de todos os processos deste cliente"><i class="ti ti-file-text" style="font-size:12px"></i> Cliente</button> <button class="btn" style="font-size:11px" data-action="abrir-detalhe-emol" data-id="'+l.proc.id+'"><i class="ti ti-arrow-right" style="font-size:12px"></i> Ver extrato</button></td>'
           +'</tr>';
       });
       html += '</tbody></table>';
       elEmolLista.innerHTML = html;
       elEmolLista.onclick = function(e) {
+        var btnRel = e.target.closest('[data-action="relatorio-cliente-emol"]');
+        if(btnRel) { abrirModalRelatorioCliente(btnRel.dataset.id); return; }
         var btn = e.target.closest('[data-action="abrir-detalhe-emol"]');
         if(btn) abrirDetalhe(btn.dataset.id);
       };
