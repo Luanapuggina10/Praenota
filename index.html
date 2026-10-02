@@ -241,6 +241,12 @@
     .prov-title{font-size:12px;font-weight:500;}
     .prov-sub{font-size:11px;color:var(--text2);margin-top:2px;}
     .prov-obs{font-size:11px;color:var(--text2);margin-top:4px;white-space:pre-wrap;}
+    .prov-linhas{margin:5px 0 2px 16px;font-size:12px;color:var(--text);}
+    .prov-linhas li{margin:2px 0;}
+    .prov-item.fechada .prov-linhas{color:var(--text2);}
+    .doc-row.dispensado{opacity:0.7;}
+    .disp-toggle{font-size:11px;color:var(--text2);margin-top:10px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;}
+    .disp-toggle:hover{color:var(--text);}
     .pi-acomp{border-left:3px solid var(--accent);}
     .pd-acomp{color:var(--text2);}
   </style>
@@ -787,7 +793,7 @@
         </datalist>
       </div>
       <div class="field"><label>Nº do protocolo externo (se houver)</label><input type="text" id="prov-protocolo"></div>
-      <div class="field full"><label>O que foi pedido</label><input type="text" id="prov-descricao" placeholder="Em branco, usa o nome do documento"></div>
+      <div class="field full"><label>O que foi pedido — uma linha por item</label><textarea id="prov-descricao" rows="4" placeholder="Ex:&#10;Certidão cível — Justiça Estadual&#10;Certidão cível — Justiça Federal&#10;(em branco, usa o nome do documento)"></textarea></div>
       <div class="field"><label>Data do pedido</label><input type="date" id="prov-data-pedido"></div>
       <div class="field"><label>Próximo acompanhamento</label><input type="date" id="prov-proximo"></div>
       <div class="field full"><label>Observações</label><textarea id="prov-obs" rows="3"></textarea></div>
@@ -1102,6 +1108,13 @@ let _docEditId = null, _provEditId = null, _provAcompId = null, _provConclId = n
 
 function docStatus(d){ return d.status || (d.done ? 'obtido' : 'pendente'); }
 function docResolvido(d){ var s = docStatus(d); return s==='obtido' || s==='dispensado'; }
+function docDispensado(d){ return docStatus(d)==='dispensado'; }
+// Itens que contam para o processo: os dispensados saem da lista e da contagem
+function docsAtivos(p){ return docsOrdenados(p).filter(function(d){ return !docDispensado(d); }); }
+// "O que foi pedido" pode ter várias linhas (ex.: várias certidões no mesmo pedido)
+function descLinhas(t){ return String(t||'').split('\n').map(function(s){ return s.trim(); }).filter(Boolean); }
+function descResumo(t){ var l = descLinhas(t); return l.length>1 ? l[0] + ' (+' + (l.length-1) + ')' : (l[0]||''); }
+let _dispVisiveisProc = null; // id do processo em que os dispensados estão sendo exibidos
 function respClass(r){ var f = DOC_RESP.find(function(x){ return x[0]===r; }); return f ? f[1] : 'r-ter'; }
 function hojeStr(){ return dateToStr(new Date()); }
 function plural(n, s, p){ return n + ' ' + (n===1 ? s : p); }
@@ -1154,7 +1167,7 @@ function isPreProtocolo(p){
 // Resumo curto para a lista de processos: "11/18 docs · 3 providências"
 function resumoInstrucao(p){
   if(p.etapa==='concluido') return '';
-  var partes = [], docs = p.checklist_docs||[];
+  var partes = [], docs = docsAtivos(p);
   if(isPreProtocolo(p) && docs.length) partes.push(docs.filter(docResolvido).length + '/' + docs.length + ' docs');
   var n = provsAbertas(p).length;
   if(n) partes.push(plural(n,'providência','providências'));
@@ -1203,7 +1216,7 @@ function renderAcompItem(a){
     var atrasado = a.dias!==null && a.dias<=0;
     cls = 'pi-acomp' + (atrasado ? ' pi-warning' : '');
     icon = '<i class="ti ti-calendar-event" style="font-size:16px;color:'+(atrasado?'var(--warning)':'var(--accent)')+';"></i>';
-    nome = (a.prov.orgao ? escRel(a.prov.orgao) + ' — ' : '') + escRel(a.prov.descricao||'');
+    nome = (a.prov.orgao ? escRel(a.prov.orgao) + ' — ' : '') + escRel(descResumo(a.prov.descricao));
     if(a.doc && a.doc.texto !== a.prov.descricao) sub.push(escRel(a.doc.texto));
     if(a.prov.protocolo_externo) sub.push('Prot. ' + escRel(a.prov.protocolo_externo));
     if(a.data) sub.push('Acompanhar em ' + fmtDate(a.data));
@@ -1259,7 +1272,13 @@ function renderProvItem(pv){
   var aberta = pv.status==='em_andamento';
   var n = aberta ? diasCorridos(pv.proximo_acompanhamento) : null;
   var atrasada = aberta && n!==null && n<=0;
-  var titulo = (pv.orgao ? escRel(pv.orgao) + ' — ' : '') + escRel(pv.descricao||'');
+  var linhas = descLinhas(pv.descricao), titulo, listaHtml = '';
+  if(linhas.length > 1) {
+    titulo = (pv.orgao ? escRel(pv.orgao) + ' — ' : '') + linhas.length + ' itens pedidos';
+    listaHtml = '<ul class="prov-linhas">' + linhas.map(function(l){ return '<li>'+escRel(l)+'</li>'; }).join('') + '</ul>';
+  } else {
+    titulo = (pv.orgao ? escRel(pv.orgao) + ' — ' : '') + escRel(linhas[0]||'');
+  }
   var sub = [];
   if(pv.protocolo_externo) sub.push('Prot. ' + escRel(pv.protocolo_externo));
   if(pv.data_pedido) sub.push('Pedido em ' + fmtDate(pv.data_pedido));
@@ -1281,6 +1300,7 @@ function renderProvItem(pv){
   return '<div class="prov-item'+(aberta?'':' fechada')+(atrasada?' atrasada':'')+'">'
     + '<div style="flex:1;min-width:0;">'
     + '<div class="prov-title">'+titulo+'</div>'
+    + listaHtml
     + '<div class="prov-sub">'+sub.join(' · ')+'</div>'
     + (pv.obs ? '<div class="prov-obs">'+escRel(pv.obs)+'</div>' : '')
     + '</div>'
@@ -1289,7 +1309,7 @@ function renderProvItem(pv){
 }
 
 function renderDocRow(p, d){
-  var st = docStatus(d), res = docResolvido(d);
+  var st = docStatus(d), res = docResolvido(d), disp = st==='dispensado';
   var meta = [];
   if(st!=='pendente' && st!=='obtido') meta.push('<span class="st-tag st-'+st+'">'+(DOC_STATUS[st]||st)+'</span>');
   if(d.responsavel) meta.push('<span class="rtag '+respClass(d.responsavel)+'">'+escRel(d.responsavel)+'</span>');
@@ -1310,16 +1330,18 @@ function renderDocRow(p, d){
     }
   }
   var provs = provsDoDoc(p, d.id).sort(ordProv);
-  return '<div class="doc-row">'
+  return '<div class="doc-row'+(disp?' dispensado':'')+'">'
     + '<div class="doc-head">'
-    + '<div class="chk-box '+(res?'ck':'')+'" data-action="toggle-doc" data-id="'+d.id+'" title="'+(res?'Voltar para pendente':'Marcar como obtido hoje')+'"></div>'
+    + (disp ? '<div style="width:16px;flex-shrink:0;"></div>'
+            : '<div class="chk-box '+(res?'ck':'')+'" data-action="toggle-doc" data-id="'+d.id+'" title="'+(res?'Voltar para pendente':'Marcar como obtido hoje')+'"></div>')
     + '<div style="flex:1;min-width:0;">'
-    + '<div class="chk-text '+(res?'done':'')+'">'+escRel(d.texto)+'</div>'
+    + '<div class="chk-text">'+escRel(d.texto)+'</div>'
     + (meta.length ? '<div class="doc-meta">'+meta.join('')+'</div>' : '')
     + vincHtml
     + (d.obs ? '<div class="prov-obs">'+escRel(d.obs)+'</div>' : '')
     + '</div>'
     + '<div class="doc-actions">'
+    + (disp ? '<button class="btn btn-mini" data-action="toggle-doc" data-id="'+d.id+'" title="Voltar o item para a lista, como pendente"><i class="ti ti-arrow-back-up"></i> Reativar</button>' : '')
     + (res ? '' : '<button class="btn btn-mini" data-action="nova-prov" data-id="'+d.id+'" title="Registrar pedido / protocolo em outro órgão ou com terceiro"><i class="ti ti-plus"></i> Providência</button>')
     + '<button class="btn btn-mini" data-action="edit-doc" data-id="'+d.id+'" title="Situação, responsável, validade..."><i class="ti ti-edit"></i></button>'
     + '</div>'
@@ -1331,7 +1353,8 @@ function renderDocRow(p, d){
 function renderChecklist(){
   var el = document.getElementById('card-checklist');
   if(!el || !activeProc) return;
-  var p = activeProc, docs = docsOrdenados(p);
+  var p = activeProc, docs = docsAtivos(p);
+  var dispensados = docsOrdenados(p).filter(docDispensado);
   var ok = docs.filter(docResolvido).length, abertas = provsAbertas(p).length;
   var html = '<div class="row-between" style="margin-bottom:8px;">'
     + '<div class="card-title" style="margin-bottom:0;">Checklist de documentos</div>'
@@ -1343,6 +1366,12 @@ function renderChecklist(){
     + docs.map(function(d){ return renderDocRow(p, d); }).join('')
     + (!docs.length ? '<div style="font-size:13px;color:var(--text3);padding:8px 0;">Nenhum item ainda.</div>' : '')
     + '</div>';
+  if(dispensados.length) {
+    var mostrando = _dispVisiveisProc === p.id;
+    html += '<div class="disp-toggle" data-action="toggle-dispensados"><i class="ti ti-'+(mostrando?'chevron-down':'chevron-right')+'"></i>'
+      + plural(dispensados.length,'item dispensado','itens dispensados') + ' · ' + (mostrando?'ocultar':'mostrar') + '</div>';
+    if(mostrando) html += '<div>' + dispensados.map(function(d){ return renderDocRow(p, d); }).join('') + '</div>';
+  }
   var gerais = (p.providencias||[]).filter(function(x){ return !x.checklist_doc_id; }).sort(ordProv);
   html += '<div class="row-between" style="margin-top:14px;margin-bottom:6px;">'
     + '<div class="section-label" style="margin-bottom:0;">Providências gerais do processo</div>'
@@ -1369,6 +1398,7 @@ function renderChecklist(){
     else if(a==='reabrir-prov') reabrirProv(id);
     else if(a==='del-prov') deletarProv(id);
     else if(a==='abrir-proc') abrirDetalhe(id);
+    else if(a==='toggle-dispensados') { _dispVisiveisProc = (_dispVisiveisProc===activeProc.id) ? null : activeProc.id; renderChecklist(); }
   };
 }
 
@@ -1400,8 +1430,7 @@ async function resolverProvidenciasAbertas(docId, status, data){
     if(confirm('Este documento tem ' + plural(n,'providência','providências') + ' em andamento. Concluir com a data ' + fmtDate(data) + '?'))
       upd = {status:'concluida', data_conclusao:data};
   } else if(status==='dispensado'){
-    if(confirm('Este documento tem ' + plural(n,'providência','providências') + ' em andamento. Cancelar?'))
-      upd = {status:'cancelada'};
+    upd = {status:'cancelada'}; // a confirmação já foi pedida antes de salvar o item
   }
   if(!upd) return;
   var res = await sb.from('providencias').update(upd).in('id', ids);
@@ -1479,11 +1508,15 @@ async function salvarDocItem(){
       processo_vinculado_id: document.getElementById('doc-vinculado').value||null,
       obs: document.getElementById('doc-obs').value.trim()||null
     };
+    if(status==='dispensado') {
+      var nAb = provsDoDoc(activeProc, _docEditId).filter(function(x){ return x.status==='em_andamento'; }).length;
+      if(nAb && !confirm('Este documento tem ' + plural(nAb,'providência','providências') + ' em andamento, que ' + (nAb===1?'será cancelada':'serão canceladas') + ' ao dispensá-lo. Continuar?')) return;
+    }
     var res = await sb.from('checklist_docs').update(obj).eq('id', _docEditId);
     if(res.error){ toast('Erro: ' + res.error.message); return; }
     await resolverProvidenciasAbertas(_docEditId, status, obj.data_obtido);
     fecharModal('modal-doc-item');
-    toast('Item atualizado!');
+    toast(status==='dispensado' ? 'Item dispensado — saiu da lista deste processo.' : 'Item atualizado!');
     await recarregarChecklist();
   });
 }
@@ -1513,7 +1546,7 @@ async function salvarProvidencia(){
   await comBotaoTravado('btn-salvar-prov', async function(){
     var docId = document.getElementById('prov-doc').value||null;
     var doc = docId ? (activeProc.checklist_docs||[]).find(function(d){ return d.id===docId; }) : null;
-    var descricao = document.getElementById('prov-descricao').value.trim() || (doc ? doc.texto : '');
+    var descricao = descLinhas(document.getElementById('prov-descricao').value).join('\n') || (doc ? doc.texto : '');
     if(!descricao){ toast('Descreva o que foi pedido.'); return; }
     var obj = {
       checklist_doc_id: docId,
@@ -1539,7 +1572,7 @@ async function salvarProvidencia(){
 }
 
 function resumoProv(pv){
-  return (pv.orgao ? pv.orgao + ' — ' : '') + (pv.descricao||'') + (pv.protocolo_externo ? ' · Prot. ' + pv.protocolo_externo : '');
+  return (pv.orgao ? pv.orgao + ' — ' : '') + descResumo(pv.descricao) + (pv.protocolo_externo ? ' · Prot. ' + pv.protocolo_externo : '');
 }
 
 // ── Modal: registrar acompanhamento (anota o que aconteceu e reagenda) ──
@@ -4236,7 +4269,7 @@ function renderClienteDetalhe() {
   var prazos = getPrazosAtivos(p);
   var etapas = construirTimeline(p);
   var info = etapaInfo(p), bc = info[0], bl = info[1];
-  var docs = docsOrdenados(p);
+  var docs = docsAtivos(p);
   var dd = docs.filter(docResolvido).length;
   var dc = {done:'dot-done',active:'dot-active',exig:'dot-exig',pending:'dot-pend',cancelado:'dot-cancelado',ativo:'dot-ativo',notif:'dot-notif'};
 
@@ -4282,7 +4315,7 @@ function renderClienteDetalhe() {
         var st = docStatus(d), res = docResolvido(d), tags = '';
         if(st!=='pendente' && st!=='obtido') tags += '<span class="st-tag st-'+st+'">'+(DOC_STATUS[st]||st)+'</span>';
         if(d.responsavel && !res) tags += '<span class="rtag '+respClass(d.responsavel)+'">'+escRel(d.responsavel)+'</span>';
-        return '<div class="chk-row"><div class="chk-box '+(res?'ck':'')+'" style="cursor:default;"></div><div><div class="chk-text '+(res?'done':'')+'">'+escRel(d.texto)+'</div>'+(tags?'<div class="doc-meta">'+tags+'</div>':'')+'</div></div>';
+        return '<div class="chk-row"><div class="chk-box '+(res?'ck':'')+'" style="cursor:default;"></div><div><div class="chk-text">'+escRel(d.texto)+'</div>'+(tags?'<div class="doc-meta">'+tags+'</div>':'')+'</div></div>';
       }).join('')
     + (!docs.length ? '<div style="font-size:13px;color:var(--text3);padding:8px 0;">Nenhum item ainda.</div>' : '')
     + '</div></div>';
