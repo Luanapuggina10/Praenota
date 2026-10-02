@@ -222,6 +222,27 @@
     .emol-tag{display:inline-block;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:500;flex-shrink:0;}
     .emol-tag-rec{background:var(--success-bg);color:var(--success);}
     .emol-tag-desp{background:var(--danger-bg);color:var(--danger);}
+    /* CHECKLIST — situação dos documentos e providências */
+    .doc-row{padding:10px 0;border-bottom:1px solid var(--border);}
+    .doc-row:last-child{border-bottom:none;}
+    .doc-head{display:flex;align-items:flex-start;gap:10px;}
+    .doc-meta{display:flex;gap:6px 8px;flex-wrap:wrap;align-items:center;margin-top:4px;font-size:11px;color:var(--text2);}
+    .doc-actions{display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;}
+    .btn-mini{font-size:11px;padding:3px 8px;}
+    .st-tag{display:inline-block;font-size:10px;padding:1px 8px;border-radius:20px;font-weight:500;}
+    .st-em_andamento{background:var(--info-bg);color:var(--info);}
+    .st-aguardando{background:var(--warning-bg);color:var(--warning);}
+    .st-dispensado{background:#f0f0ee;color:var(--text2);}
+    .prov-list{margin:8px 0 2px 26px;display:flex;flex-direction:column;gap:6px;}
+    .prov-item{border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:8px;padding:8px 10px;background:#fdfbf6;display:flex;gap:10px;align-items:flex-start;}
+    .prov-item.atrasada{border-left-color:var(--warning);}
+    .prov-item.fechada{border-left-color:var(--border-med);background:var(--surface2);}
+    .prov-item.fechada .prov-title{color:var(--text2);font-weight:400;}
+    .prov-title{font-size:12px;font-weight:500;}
+    .prov-sub{font-size:11px;color:var(--text2);margin-top:2px;}
+    .prov-obs{font-size:11px;color:var(--text2);margin-top:4px;white-space:pre-wrap;}
+    .pi-acomp{border-left:3px solid var(--accent);}
+    .pd-acomp{color:var(--text2);}
   </style>
 </head>
 <body>
@@ -265,6 +286,7 @@
       <div class="page-title">Painel</div>
       <div class="metrics" id="metrics-painel"></div>
       <div class="card"><div class="card-title">Alertas de prazo</div><div id="alertas-painel"></div></div>
+      <div class="card"><div class="card-title">Acompanhamentos — próximos 7 dias</div><div id="acomp-painel"></div></div>
       <div class="card">
         <div class="row-between" style="margin-bottom:1rem;">
           <div class="card-title" style="margin-bottom:0;">Processos recentes</div>
@@ -320,6 +342,11 @@
       <div class="page-title">Prazos</div>
       <div class="metrics" id="metrics-prazos"></div>
       <div class="card"><div class="card-title">Prazos ativos</div><div id="lista-prazos"></div></div>
+      <div class="card">
+        <div class="card-title" style="margin-bottom:4px;">Acompanhamentos — providências em outros órgãos</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:12px;">Lembretes de cobrança em dias corridos. Não são prazos legais.</div>
+        <div id="lista-acomp"></div>
+      </div>
       <div id="prazos-prenotacao"></div>
     </div>
 
@@ -715,6 +742,101 @@
   </div>
 </div>
 
+<!-- MODAL ITEM DO CHECKLIST -->
+<div class="modal-bg" id="modal-doc-item">
+  <div class="modal" style="width:520px;">
+    <div class="modal-title">Item do checklist</div>
+    <div class="form-grid" style="margin-bottom:1rem;">
+      <div class="field full"><label>Documento</label><input type="text" id="doc-texto"></div>
+      <div class="field"><label>Situação</label>
+        <select id="doc-status" onchange="toggleDocStatusFields()">
+          <option value="pendente">Pendente</option>
+          <option value="em_andamento">Em andamento</option>
+          <option value="aguardando">Aguardando terceiro</option>
+          <option value="obtido">Obtido</option>
+          <option value="dispensado">Dispensado (não se aplica)</option>
+        </select>
+      </div>
+      <div class="field"><label>Responsável por obter</label><select id="doc-responsavel"></select></div>
+      <div class="field" id="doc-obtido-field"><label>Obtido em</label><input type="date" id="doc-data-obtido"></div>
+      <div class="field" id="doc-validade-field"><label>Válido até (opcional)</label><input type="date" id="doc-validade"></div>
+      <div class="field full"><label>Depende de outro processo (opcional)</label><select id="doc-vinculado"></select></div>
+      <div class="field full"><label>Observações</label><textarea id="doc-obs" rows="2"></textarea></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn" onclick="fecharModal('modal-doc-item')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-doc" onclick="salvarDocItem()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL PROVIDÊNCIA -->
+<div class="modal-bg" id="modal-providencia">
+  <div class="modal" style="width:520px;">
+    <div class="modal-title" id="modal-providencia-title">Nova providência</div>
+    <div class="form-grid" style="margin-bottom:1rem;">
+      <div class="field full"><label>Documento do checklist</label><select id="prov-doc"></select></div>
+      <div class="field"><label>Órgão / destinatário</label>
+        <input type="text" id="prov-orgao" list="prov-orgaos" placeholder="Ex: Prefeitura, Tabelionato, confrontante...">
+        <datalist id="prov-orgaos">
+          <option>Prefeitura</option><option>Tabelionato de Notas</option><option>Registro de Imóveis</option>
+          <option>Engenheiro / topógrafo</option><option>Confrontante</option><option>Cliente</option>
+          <option>SPU</option><option>INCRA</option><option>IMA</option><option>FLORAM</option>
+          <option>Justiça Estadual</option><option>Justiça Federal</option><option>Receita Federal</option>
+          <option>CASAN</option><option>CELESC</option>
+        </datalist>
+      </div>
+      <div class="field"><label>Nº do protocolo externo (se houver)</label><input type="text" id="prov-protocolo"></div>
+      <div class="field full"><label>O que foi pedido</label><input type="text" id="prov-descricao" placeholder="Em branco, usa o nome do documento"></div>
+      <div class="field"><label>Data do pedido</label><input type="date" id="prov-data-pedido"></div>
+      <div class="field"><label>Próximo acompanhamento</label><input type="date" id="prov-proximo"></div>
+      <div class="field full"><label>Observações</label><textarea id="prov-obs" rows="3"></textarea></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn" onclick="fecharModal('modal-providencia')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-prov" onclick="salvarProvidencia()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL REGISTRAR ACOMPANHAMENTO -->
+<div class="modal-bg" id="modal-acomp">
+  <div class="modal" style="width:440px;">
+    <div class="modal-title">Registrar acompanhamento</div>
+    <div id="acomp-resumo" style="font-size:12px;color:var(--text2);margin-bottom:12px;"></div>
+    <div class="form-grid" style="margin-bottom:1rem;">
+      <div class="field full"><label>O que aconteceu (opcional)</label><textarea id="acomp-nota" rows="3" placeholder="Ex: Liguei na prefeitura, ainda está no setor de cadastro."></textarea></div>
+      <div class="field full"><label>Próximo acompanhamento</label><input type="date" id="acomp-proximo"></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn" onclick="fecharModal('modal-acomp')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-acomp" onclick="salvarAcomp()">Registrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CONCLUIR PROVIDÊNCIA -->
+<div class="modal-bg" id="modal-concluir-prov">
+  <div class="modal" style="width:440px;">
+    <div class="modal-title">Concluir providência</div>
+    <div id="concl-resumo" style="font-size:12px;color:var(--text2);margin-bottom:12px;"></div>
+    <div class="form-grid" style="margin-bottom:1rem;">
+      <div class="field full"><label>Data em que o documento / a resposta foi recebido</label><input type="date" id="concl-data"></div>
+      <div class="field full" id="concl-doc-wrap">
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;color:var(--text);cursor:pointer;">
+          <input type="checkbox" id="concl-marcar-doc" style="width:auto;padding:0;margin-top:3px;" onchange="toggleConclValidade()">
+          <span id="concl-marcar-label">Marcar o documento como obtido</span>
+        </label>
+      </div>
+      <div class="field full" id="concl-validade-field"><label>Documento válido até (opcional)</label><input type="date" id="concl-validade"></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn" onclick="fecharModal('modal-concluir-prov')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-confirmar-concl" onclick="confirmarConclusaoProv()">Concluir</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -803,7 +925,14 @@ window.addEventListener('load', initApp);
 
 async function load() {
   try {
-    const {data,error}=await sb.from('processos').select('*, exigencias(*, exigencia_itens(*)), checklist_docs(*), parcelas(*), protocolos(*, fases(*), emolumentos_lancamentos(*)), oficios(*, oficio_itens(*))').eq('user_id',currentUser.id).order('created_at',{ascending:false});
+    const SEL = '*, exigencias(*, exigencia_itens(*)), checklist_docs(*), parcelas(*), protocolos(*, fases(*), emolumentos_lancamentos(*)), oficios(*, oficio_itens(*))';
+    let {data,error}=await sb.from('processos').select(SEL+', providencias(*)').eq('user_id',currentUser.id).order('created_at',{ascending:false});
+    if(error){
+      // Tabela "providencias" ainda não existe (migração SQL não rodada): carrega sem ela para o app não ficar vazio
+      console.error('Erro load (com providencias):',error);
+      ({data,error}=await sb.from('processos').select(SEL).eq('user_id',currentUser.id).order('created_at',{ascending:false}));
+      if(!error) toast('Providências indisponíveis — rode a migração SQL no Supabase.');
+    }
     if(error){console.error('Erro load:',error);return;}
     if(data){
       // flatten exigencia_itens into top level for compatibility
@@ -907,7 +1036,7 @@ const CHECKLISTS = {"Unificação": ["Matrículas atualizadas de todos os imóve
 async function criarChecklistPadrao(processoId, tipo) {
   const items = CHECKLISTS[tipo];
   if(!items || !items.length) return;
-  const rows = items.map(t => ({processo_id: processoId, user_id: currentUser.id, texto: t, done: false}));
+  const rows = items.map((t, i) => ({processo_id: processoId, user_id: currentUser.id, texto: t, done: false, status: 'pendente', ordem: i + 1}));
   await sb.from('checklist_docs').insert(rows);
 }
 
@@ -942,11 +1071,6 @@ async function salvarExigencia() {
   await load(); activeProc=processos.find(function(p){return p.id===activeProc.id;}); renderDetalhe();
 }
 
-async function toggleCheckDoc(id,done) {
-  await sb.from('checklist_docs').update({done}).eq('id',id);
-  await load(); activeProc=processos.find(p=>p.id===activeProc.id); renderDetalhe();
-}
-
 async function toggleExigItem(id,done) {
   await sb.from('exigencia_itens').update({done}).eq('id',id);
   await load(); activeProc=processos.find(p=>p.id===activeProc.id); renderExigencia();
@@ -967,12 +1091,549 @@ async function addExigItem() {
   await load(); activeProc=processos.find(p=>p.id===activeProc.id); renderExigencia();
 }
 
+// ── CHECKLIST: SITUAÇÃO DOS DOCUMENTOS + PROVIDÊNCIAS ────────────────────────
+// Cada item do checklist tem um ciclo de vida (status) e pode ter providências:
+// pedidos / protocolos em outros órgãos ou com terceiros, acompanhados por data.
+// As datas de acompanhamento são lembretes em dias CORRIDOS e ficam FORA do motor
+// de prazos legais (getPrazosAtivos), que continua tratando só dos prazos do registro.
+const DOC_STATUS = {pendente:'Pendente', em_andamento:'Em andamento', aguardando:'Aguardando terceiro', obtido:'Obtido', dispensado:'Dispensado'};
+const DOC_RESP = [['Escritório','r-eu'],['Cliente','r-cli'],['Engenheiro / técnico','r-ter'],['Cartório','r-car'],['Terceiro','r-ter']];
+let _docEditId = null, _provEditId = null, _provAcompId = null, _provConclId = null;
+
+function docStatus(d){ return d.status || (d.done ? 'obtido' : 'pendente'); }
+function docResolvido(d){ var s = docStatus(d); return s==='obtido' || s==='dispensado'; }
+function respClass(r){ var f = DOC_RESP.find(function(x){ return x[0]===r; }); return f ? f[1] : 'r-ter'; }
+function hojeStr(){ return dateToStr(new Date()); }
+function plural(n, s, p){ return n + ' ' + (n===1 ? s : p); }
+
+// Diferença em dias corridos entre hoje e a data (negativo = já passou)
+function diasCorridos(ds){
+  if(!ds) return null;
+  var parts = String(ds).replace(/T.*/,'').split('-');
+  var t = new Date(parseInt(parts[0]), parseInt(parts[1])-1, parseInt(parts[2]));
+  t.setHours(0,0,0,0);
+  var hoje = new Date(); hoje.setHours(0,0,0,0);
+  return Math.round((t - hoje) / 86400000);
+}
+function acompLabel(n){
+  if(n===null) return 'Sem data';
+  if(n<0) return 'Atrasado ' + plural(-n,'dia','dias');
+  if(n===0) return 'Hoje';
+  if(n===1) return 'Amanhã';
+  return 'Em ' + n + ' dias';
+}
+function validadeLabel(n){
+  if(n<0) return 'Vencido há ' + plural(-n,'dia','dias');
+  if(n===0) return 'Vence hoje';
+  return 'Vence em ' + plural(n,'dia','dias');
+}
+
+function docsOrdenados(p){
+  return (p.checklist_docs||[]).slice().sort(function(a,b){
+    var oa = a.ordem==null ? 99999 : a.ordem, ob = b.ordem==null ? 99999 : b.ordem;
+    return oa - ob;
+  });
+}
+function provsDoDoc(p, docId){ return (p.providencias||[]).filter(function(x){ return x.checklist_doc_id===docId; }); }
+function provsAbertas(p){ return (p.providencias||[]).filter(function(x){ return x.status==='em_andamento'; }); }
+function ordProv(a,b){
+  var aa = a.status==='em_andamento' ? 0 : 1, ba = b.status==='em_andamento' ? 0 : 1;
+  if(aa!==ba) return aa - ba;
+  var da = (aa===0 ? a.proximo_acompanhamento : a.data_conclusao) || '9999-99-99';
+  var db = (ba===0 ? b.proximo_acompanhamento : b.data_conclusao) || '9999-99-99';
+  return da.localeCompare(db);
+}
+
+// Processo ainda em fase de instrução: nenhum protocolo foi apresentado no registro
+function isPreProtocolo(p){
+  if(p.etapa==='concluido') return false;
+  if(p.apresentacao) return false;
+  return !(p.protocolos||[]).some(function(pr){ return pr.apresentacao; });
+}
+
+// Resumo curto para a lista de processos: "11/18 docs · 3 providências"
+function resumoInstrucao(p){
+  if(p.etapa==='concluido') return '';
+  var partes = [], docs = p.checklist_docs||[];
+  if(isPreProtocolo(p) && docs.length) partes.push(docs.filter(docResolvido).length + '/' + docs.length + ' docs');
+  var n = provsAbertas(p).length;
+  if(n) partes.push(plural(n,'providência','providências'));
+  return partes.join(' · ');
+}
+
+// Acompanhamentos do processo: providências em andamento + validade de documentos
+// já obtidos (a validade só importa enquanto o processo não foi protocolado).
+function getAcompanhamentos(p){
+  if(p.etapa==='concluido') return [];
+  var out = [], docs = p.checklist_docs||[];
+  provsAbertas(p).forEach(function(pv){
+    var doc = docs.find(function(d){ return d.id===pv.checklist_doc_id; });
+    out.push({kind:'prov', proc:p, prov:pv, doc:doc||null, data:pv.proximo_acompanhamento||null, dias:diasCorridos(pv.proximo_acompanhamento)});
+  });
+  if(isPreProtocolo(p)){
+    docs.forEach(function(d){
+      if(docStatus(d)==='obtido' && d.validade){
+        var n = diasCorridos(d.validade);
+        if(n<=10) out.push({kind:'validade', proc:p, doc:d, data:d.validade, dias:n});
+      }
+    });
+  }
+  return out;
+}
+function ordAcomp(a,b){
+  if(a.dias===null && b.dias===null) return 0;
+  if(a.dias===null) return 1;
+  if(b.dias===null) return -1;
+  return a.dias - b.dias;
+}
+function todosAcompanhamentos(){
+  return processos.flatMap(getAcompanhamentos).sort(ordAcomp);
+}
+
+function renderAcompItem(a){
+  var cls, icon, nome, sub = [escRel(a.proc.cliente)], label, lblCls;
+  if(a.kind==='validade'){
+    cls = a.dias<0 ? 'pi-danger' : 'pi-warning';
+    icon = '<i class="ti ti-certificate" style="font-size:16px;color:'+(a.dias<0?'var(--danger)':'var(--warning)')+';"></i>';
+    nome = 'Validade — ' + escRel(a.doc.texto);
+    sub.push('Válido até ' + fmtDate(a.data));
+    label = validadeLabel(a.dias);
+    lblCls = a.dias<0 ? 'pd-danger' : 'pd-warning';
+  } else {
+    var atrasado = a.dias!==null && a.dias<=0;
+    cls = 'pi-acomp' + (atrasado ? ' pi-warning' : '');
+    icon = '<i class="ti ti-calendar-event" style="font-size:16px;color:'+(atrasado?'var(--warning)':'var(--accent)')+';"></i>';
+    nome = (a.prov.orgao ? escRel(a.prov.orgao) + ' — ' : '') + escRel(a.prov.descricao||'');
+    if(a.doc && a.doc.texto !== a.prov.descricao) sub.push(escRel(a.doc.texto));
+    if(a.prov.protocolo_externo) sub.push('Prot. ' + escRel(a.prov.protocolo_externo));
+    if(a.data) sub.push('Acompanhar em ' + fmtDate(a.data));
+    label = acompLabel(a.dias);
+    lblCls = atrasado ? 'pd-warning' : 'pd-acomp';
+  }
+  return '<div class="prazo-item '+cls+'">'+icon
+    + '<div style="flex:1;min-width:0;"><div class="pname">'+nome+'</div><div class="psub">'+sub.join(' · ')+'</div></div>'
+    + '<span class="pdays '+lblCls+'">'+label+'</span>'
+    + '<button class="btn" data-action="abrir-proc-chk" data-id="'+a.proc.id+'">Abrir</button>'
+    + '</div>';
+}
+function abrirDetalheNoChecklist(id){
+  abrirDetalhe(id);
+  var c = document.getElementById('card-checklist');
+  if(c) c.scrollIntoView({block:'start'});
+}
+function ligarCliqueAcomp(el){
+  el.onclick = function(e){ var b = e.target.closest('[data-action="abrir-proc-chk"]'); if(b) abrirDetalheNoChecklist(b.dataset.id); };
+}
+
+// Painel: só o que pede ação nos próximos 7 dias (ou já está atrasado)
+function renderAcompPainel(){
+  var el = document.getElementById('acomp-painel');
+  if(!el) return;
+  var lista = todosAcompanhamentos().filter(function(a){ return a.kind==='validade' || (a.dias!==null && a.dias<=7); });
+  el.innerHTML = lista.length ? lista.map(renderAcompItem).join('')
+    : '<div class="empty"><i class="ti ti-circle-check"></i>Nenhum acompanhamento para os próximos 7 dias</div>';
+  ligarCliqueAcomp(el);
+}
+
+// Página Prazos: lista completa, separada dos prazos legais
+function renderListaAcomp(){
+  var el = document.getElementById('lista-acomp');
+  if(!el) return;
+  var todos = todosAcompanhamentos();
+  var provs = todos.filter(function(a){ return a.kind==='prov'; });
+  var vals = todos.filter(function(a){ return a.kind==='validade'; });
+  var sec = 'font-size:11px;font-weight:500;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em;';
+  var html = '<div style="'+sec+'">Providências em andamento</div>';
+  html += provs.length ? provs.map(renderAcompItem).join('')
+    : '<div style="font-size:13px;color:var(--text3);padding:10px 0;">Nenhuma providência em andamento</div>';
+  if(vals.length){
+    html += '<div style="'+sec+'margin-top:16px;">Documentos com validade vencendo (processos ainda não protocolados)</div>';
+    html += vals.map(renderAcompItem).join('');
+  }
+  el.innerHTML = html;
+  ligarCliqueAcomp(el);
+}
+
+// ── Card do checklist no detalhe do processo ──
+function renderProvItem(pv){
+  var aberta = pv.status==='em_andamento';
+  var n = aberta ? diasCorridos(pv.proximo_acompanhamento) : null;
+  var atrasada = aberta && n!==null && n<=0;
+  var titulo = (pv.orgao ? escRel(pv.orgao) + ' — ' : '') + escRel(pv.descricao||'');
+  var sub = [];
+  if(pv.protocolo_externo) sub.push('Prot. ' + escRel(pv.protocolo_externo));
+  if(pv.data_pedido) sub.push('Pedido em ' + fmtDate(pv.data_pedido));
+  if(aberta){
+    sub.push(pv.proximo_acompanhamento
+      ? 'Acompanhar em ' + fmtDate(pv.proximo_acompanhamento) + ' <span style="font-weight:500;color:'+(atrasada?'var(--warning)':'var(--text)')+';">(' + acompLabel(n).toLowerCase() + ')</span>'
+      : '<span style="color:var(--warning);">Sem data de acompanhamento</span>');
+  } else if(pv.status==='concluida'){
+    sub.push('<span style="color:var(--success);">Concluída em ' + fmtDate(pv.data_conclusao) + '</span>');
+  } else {
+    sub.push('Cancelada');
+  }
+  var botoes = aberta
+    ? '<button class="btn btn-mini" data-action="acomp-prov" data-id="'+pv.id+'" title="Registrar acompanhamento e reagendar"><i class="ti ti-calendar-plus"></i> Acompanhar</button>'
+      + '<button class="btn btn-mini" data-action="concluir-prov" data-id="'+pv.id+'" style="color:var(--success);border-color:#9ad0b8;"><i class="ti ti-check"></i> Concluir</button>'
+      + '<button class="btn btn-mini" data-action="edit-prov" data-id="'+pv.id+'" title="Editar"><i class="ti ti-edit"></i></button>'
+    : '<button class="btn btn-mini" data-action="reabrir-prov" data-id="'+pv.id+'" title="Reabrir"><i class="ti ti-refresh"></i></button>';
+  botoes += '<button class="btn btn-mini" data-action="del-prov" data-id="'+pv.id+'" title="Excluir" style="color:var(--danger);"><i class="ti ti-trash"></i></button>';
+  return '<div class="prov-item'+(aberta?'':' fechada')+(atrasada?' atrasada':'')+'">'
+    + '<div style="flex:1;min-width:0;">'
+    + '<div class="prov-title">'+titulo+'</div>'
+    + '<div class="prov-sub">'+sub.join(' · ')+'</div>'
+    + (pv.obs ? '<div class="prov-obs">'+escRel(pv.obs)+'</div>' : '')
+    + '</div>'
+    + '<div class="doc-actions">'+botoes+'</div>'
+    + '</div>';
+}
+
+function renderDocRow(p, d){
+  var st = docStatus(d), res = docResolvido(d);
+  var meta = [];
+  if(st!=='pendente' && st!=='obtido') meta.push('<span class="st-tag st-'+st+'">'+(DOC_STATUS[st]||st)+'</span>');
+  if(d.responsavel) meta.push('<span class="rtag '+respClass(d.responsavel)+'">'+escRel(d.responsavel)+'</span>');
+  if(st==='obtido' && d.data_obtido) meta.push('<span>Obtido em '+fmtDate(d.data_obtido)+'</span>');
+  if(st==='obtido' && d.validade){
+    var nv = diasCorridos(d.validade);
+    var alerta = isPreProtocolo(p) && nv<=10;
+    meta.push('<span style="'+(alerta?'font-weight:500;color:'+(nv<0?'var(--danger)':'var(--warning)')+';':'')+'">Válido até '+fmtDate(d.validade)+(alerta?' ('+validadeLabel(nv).toLowerCase()+')':'')+'</span>');
+  }
+  var vincHtml = '';
+  if(d.processo_vinculado_id){
+    var pvinc = processos.find(function(x){ return x.id===d.processo_vinculado_id; });
+    if(pvinc){
+      var info = etapaInfo(pvinc);
+      vincHtml = '<div class="doc-meta"><i class="ti ti-link" style="font-size:13px;"></i><span>Depende do processo: <strong style="color:var(--text);">'+escRel(pvinc.cliente)+' — '+escRel(rotuloProcesso(pvinc))+'</strong></span>'
+        + '<span class="badge '+info[0]+'">'+info[1]+'</span>'
+        + '<button class="btn btn-mini" data-action="abrir-proc" data-id="'+pvinc.id+'">Abrir</button></div>';
+    }
+  }
+  var provs = provsDoDoc(p, d.id).sort(ordProv);
+  return '<div class="doc-row">'
+    + '<div class="doc-head">'
+    + '<div class="chk-box '+(res?'ck':'')+'" data-action="toggle-doc" data-id="'+d.id+'" title="'+(res?'Voltar para pendente':'Marcar como obtido hoje')+'"></div>'
+    + '<div style="flex:1;min-width:0;">'
+    + '<div class="chk-text '+(res?'done':'')+'">'+escRel(d.texto)+'</div>'
+    + (meta.length ? '<div class="doc-meta">'+meta.join('')+'</div>' : '')
+    + vincHtml
+    + (d.obs ? '<div class="prov-obs">'+escRel(d.obs)+'</div>' : '')
+    + '</div>'
+    + '<div class="doc-actions">'
+    + (res ? '' : '<button class="btn btn-mini" data-action="nova-prov" data-id="'+d.id+'" title="Registrar pedido / protocolo em outro órgão ou com terceiro"><i class="ti ti-plus"></i> Providência</button>')
+    + '<button class="btn btn-mini" data-action="edit-doc" data-id="'+d.id+'" title="Situação, responsável, validade..."><i class="ti ti-edit"></i></button>'
+    + '</div>'
+    + '</div>'
+    + (provs.length ? '<div class="prov-list">'+provs.map(renderProvItem).join('')+'</div>' : '')
+    + '</div>';
+}
+
+function renderChecklist(){
+  var el = document.getElementById('card-checklist');
+  if(!el || !activeProc) return;
+  var p = activeProc, docs = docsOrdenados(p);
+  var ok = docs.filter(docResolvido).length, abertas = provsAbertas(p).length;
+  var html = '<div class="row-between" style="margin-bottom:8px;">'
+    + '<div class="card-title" style="margin-bottom:0;">Checklist de documentos</div>'
+    + '<div class="gap-8"><span style="font-size:11px;color:var(--text2);">'+ok+' / '+docs.length+' ok'
+    + (abertas ? ' · ' + plural(abertas,'providência','providências') + ' em andamento' : '') + '</span></div>'
+    + '</div>'
+    + '<div class="prog-bar"><div class="prog-fill" style="width:'+(docs.length?Math.round(ok/docs.length*100):0)+'%;"></div></div>'
+    + '<div id="doc-items" style="margin-top:8px;">'
+    + docs.map(function(d){ return renderDocRow(p, d); }).join('')
+    + (!docs.length ? '<div style="font-size:13px;color:var(--text3);padding:8px 0;">Nenhum item ainda.</div>' : '')
+    + '</div>';
+  var gerais = (p.providencias||[]).filter(function(x){ return !x.checklist_doc_id; }).sort(ordProv);
+  html += '<div class="row-between" style="margin-top:14px;margin-bottom:6px;">'
+    + '<div class="section-label" style="margin-bottom:0;">Providências gerais do processo</div>'
+    + '<button class="btn btn-mini" data-action="nova-prov" data-id=""><i class="ti ti-plus"></i> Providência geral</button>'
+    + '</div>';
+  html += gerais.length ? '<div class="prov-list" style="margin-left:0;">'+gerais.map(renderProvItem).join('')+'</div>'
+    : '<div style="font-size:12px;color:var(--text3);">Nenhuma. Use para o que não está ligado a um documento específico.</div>';
+  html += '<div class="add-form" style="margin-top:12px;">'
+    + '<div style="display:flex;gap:8px;">'
+    + '<input class="inline-input" type="text" id="doc-new-text" placeholder="Novo item do checklist..." style="flex:1;">'
+    + '<button class="btn" onclick="addDocItem()"><i class="ti ti-plus"></i> Adicionar</button>'
+    + '</div></div>';
+  el.innerHTML = html;
+  el.onclick = function(e){
+    var b = e.target.closest('[data-action]');
+    if(!b) return;
+    var a = b.dataset.action, id = b.dataset.id;
+    if(a==='toggle-doc') toggleCheckDoc(id);
+    else if(a==='edit-doc') abrirModalDocItem(id);
+    else if(a==='nova-prov') abrirModalProvidencia(null, id||null);
+    else if(a==='edit-prov') abrirModalProvidencia(id, null);
+    else if(a==='acomp-prov') abrirModalAcomp(id);
+    else if(a==='concluir-prov') abrirModalConcluirProv(id);
+    else if(a==='reabrir-prov') reabrirProv(id);
+    else if(a==='del-prov') deletarProv(id);
+    else if(a==='abrir-proc') abrirDetalhe(id);
+  };
+}
+
+async function recarregarChecklist(){
+  await load();
+  activeProc = processos.find(function(p){ return p.id===activeProc.id; });
+  renderChecklist();
+}
+
+// Trava o botão durante a operação assíncrona (evita registro duplicado por clique duplo)
+async function comBotaoTravado(btnId, fn){
+  var btn = document.getElementById(btnId);
+  if(btn && btn.disabled) return;
+  var txt = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = 'Salvando...'; }
+  try { await fn(); }
+  catch(e){ console.error(e); toast('Erro: ' + e.message); }
+  finally { if(btn){ btn.disabled = false; btn.textContent = txt; } }
+}
+
+// Quando o documento é dado como obtido/dispensado e ainda há providências abertas,
+// oferece fechá-las junto — senão o acompanhamento ficaria pendurado para sempre.
+async function resolverProvidenciasAbertas(docId, status, data){
+  var abertas = provsDoDoc(activeProc, docId).filter(function(x){ return x.status==='em_andamento'; });
+  if(!abertas.length) return;
+  var ids = abertas.map(function(x){ return x.id; }), n = abertas.length;
+  var upd = null;
+  if(status==='obtido'){
+    if(confirm('Este documento tem ' + plural(n,'providência','providências') + ' em andamento. Concluir com a data ' + fmtDate(data) + '?'))
+      upd = {status:'concluida', data_conclusao:data};
+  } else if(status==='dispensado'){
+    if(confirm('Este documento tem ' + plural(n,'providência','providências') + ' em andamento. Cancelar?'))
+      upd = {status:'cancelada'};
+  }
+  if(!upd) return;
+  var res = await sb.from('providencias').update(upd).in('id', ids);
+  if(res.error) toast('Erro: ' + res.error.message);
+}
+
+async function toggleCheckDoc(id) {
+  var d = (activeProc.checklist_docs||[]).find(function(x){ return x.id===id; });
+  if(!d) return;
+  var obj;
+  if(docResolvido(d)) {
+    var temAberta = provsDoDoc(activeProc, id).some(function(x){ return x.status==='em_andamento'; });
+    obj = {status: temAberta ? 'em_andamento' : 'pendente', done:false, data_obtido:null, validade:null};
+  } else {
+    obj = {status:'obtido', done:true, data_obtido:hojeStr()};
+  }
+  var res = await sb.from('checklist_docs').update(obj).eq('id', id);
+  if(res.error){ toast('Erro: ' + res.error.message); return; }
+  if(obj.status==='obtido') await resolverProvidenciasAbertas(id, 'obtido', obj.data_obtido);
+  await recarregarChecklist();
+}
+
 async function addDocItem() {
   const txt=document.getElementById('doc-new-text')?.value.trim();
   if(!txt||!activeProc)return;
-  await sb.from('checklist_docs').insert({processo_id:activeProc.id,user_id:currentUser.id,texto:txt,done:false});
-  document.getElementById('doc-new-text').value='';
-  await load(); activeProc=processos.find(p=>p.id===activeProc.id); renderDetalhe();
+  var maxOrdem = (activeProc.checklist_docs||[]).reduce(function(m,d){ return Math.max(m, d.ordem||0); }, 0);
+  var res = await sb.from('checklist_docs').insert({processo_id:activeProc.id,user_id:currentUser.id,texto:txt,done:false,status:'pendente',ordem:maxOrdem+1});
+  if(res.error){ toast('Erro: ' + res.error.message); return; }
+  await recarregarChecklist();
+}
+
+// ── Modal: item do checklist ──
+function toggleDocStatusFields(){
+  var obtido = document.getElementById('doc-status').value==='obtido';
+  document.getElementById('doc-obtido-field').style.display = obtido ? '' : 'none';
+  document.getElementById('doc-validade-field').style.display = obtido ? '' : 'none';
+  if(obtido && !document.getElementById('doc-data-obtido').value) document.getElementById('doc-data-obtido').value = hojeStr();
+}
+
+function abrirModalDocItem(id){
+  var d = (activeProc.checklist_docs||[]).find(function(x){ return x.id===id; });
+  if(!d) return;
+  _docEditId = id;
+  document.getElementById('doc-texto').value = d.texto||'';
+  document.getElementById('doc-status').value = docStatus(d);
+  var selR = document.getElementById('doc-responsavel');
+  var nomes = DOC_RESP.map(function(x){ return x[0]; });
+  if(d.responsavel && nomes.indexOf(d.responsavel)<0) nomes.push(d.responsavel);
+  selR.innerHTML = '<option value="">—</option>' + nomes.map(function(n){ return '<option>'+escRel(n)+'</option>'; }).join('');
+  selR.value = d.responsavel||'';
+  document.getElementById('doc-data-obtido').value = d.data_obtido||'';
+  document.getElementById('doc-validade').value = d.validade||'';
+  var selV = document.getElementById('doc-vinculado');
+  selV.innerHTML = '<option value="">— Nenhum —</option>' + processos.filter(function(p){ return p.id!==activeProc.id; }).map(function(p){
+    return '<option value="'+p.id+'">'+escRel(p.cliente+' — '+rotuloProcesso(p))+'</option>';
+  }).join('');
+  selV.value = d.processo_vinculado_id||'';
+  document.getElementById('doc-obs').value = d.obs||'';
+  toggleDocStatusFields();
+  document.getElementById('modal-doc-item').classList.add('open');
+}
+
+async function salvarDocItem(){
+  if(!activeProc || !_docEditId) return;
+  await comBotaoTravado('btn-salvar-doc', async function(){
+    var texto = document.getElementById('doc-texto').value.trim();
+    if(!texto){ toast('Informe o nome do documento.'); return; }
+    var status = document.getElementById('doc-status').value;
+    var obtido = status==='obtido';
+    var obj = {
+      texto: texto, status: status, done: obtido || status==='dispensado',
+      responsavel: document.getElementById('doc-responsavel').value||null,
+      data_obtido: obtido ? (document.getElementById('doc-data-obtido').value || hojeStr()) : null,
+      validade: obtido ? (document.getElementById('doc-validade').value||null) : null,
+      processo_vinculado_id: document.getElementById('doc-vinculado').value||null,
+      obs: document.getElementById('doc-obs').value.trim()||null
+    };
+    var res = await sb.from('checklist_docs').update(obj).eq('id', _docEditId);
+    if(res.error){ toast('Erro: ' + res.error.message); return; }
+    await resolverProvidenciasAbertas(_docEditId, status, obj.data_obtido);
+    fecharModal('modal-doc-item');
+    toast('Item atualizado!');
+    await recarregarChecklist();
+  });
+}
+
+// ── Modal: providência ──
+function abrirModalProvidencia(provId, docId){
+  if(!activeProc) return;
+  var pv = provId ? (activeProc.providencias||[]).find(function(x){ return x.id===provId; }) : null;
+  _provEditId = pv ? pv.id : null;
+  document.getElementById('modal-providencia-title').textContent = pv ? 'Editar providência' : 'Nova providência';
+  var sel = document.getElementById('prov-doc');
+  sel.innerHTML = '<option value="">— Geral (sem documento específico) —</option>' + docsOrdenados(activeProc).map(function(d){
+    return '<option value="'+d.id+'">'+escRel(d.texto)+'</option>';
+  }).join('');
+  sel.value = pv ? (pv.checklist_doc_id||'') : (docId||'');
+  document.getElementById('prov-orgao').value = pv ? (pv.orgao||'') : '';
+  document.getElementById('prov-protocolo').value = pv ? (pv.protocolo_externo||'') : '';
+  document.getElementById('prov-descricao').value = pv ? (pv.descricao||'') : '';
+  document.getElementById('prov-data-pedido').value = pv ? (pv.data_pedido||'') : hojeStr();
+  document.getElementById('prov-proximo').value = pv ? (pv.proximo_acompanhamento||'') : '';
+  document.getElementById('prov-obs').value = pv ? (pv.obs||'') : '';
+  document.getElementById('modal-providencia').classList.add('open');
+}
+
+async function salvarProvidencia(){
+  if(!activeProc) return;
+  await comBotaoTravado('btn-salvar-prov', async function(){
+    var docId = document.getElementById('prov-doc').value||null;
+    var doc = docId ? (activeProc.checklist_docs||[]).find(function(d){ return d.id===docId; }) : null;
+    var descricao = document.getElementById('prov-descricao').value.trim() || (doc ? doc.texto : '');
+    if(!descricao){ toast('Descreva o que foi pedido.'); return; }
+    var obj = {
+      checklist_doc_id: docId,
+      orgao: document.getElementById('prov-orgao').value.trim()||null,
+      descricao: descricao,
+      protocolo_externo: document.getElementById('prov-protocolo').value.trim()||null,
+      data_pedido: document.getElementById('prov-data-pedido').value||null,
+      proximo_acompanhamento: document.getElementById('prov-proximo').value||null,
+      obs: document.getElementById('prov-obs').value.trim()||null
+    };
+    var res;
+    if(_provEditId) res = await sb.from('providencias').update(obj).eq('id', _provEditId);
+    else res = await sb.from('providencias').insert(Object.assign({processo_id:activeProc.id, user_id:currentUser.id, status:'em_andamento'}, obj));
+    if(res.error){ toast('Erro: ' + res.error.message); return; }
+    // Item que estava só "pendente" passa a "em andamento" ao ganhar a primeira providência
+    if(!_provEditId && doc && docStatus(doc)==='pendente') {
+      await sb.from('checklist_docs').update({status:'em_andamento'}).eq('id', doc.id);
+    }
+    fecharModal('modal-providencia');
+    toast(_provEditId ? 'Providência atualizada!' : 'Providência registrada!');
+    await recarregarChecklist();
+  });
+}
+
+function resumoProv(pv){
+  return (pv.orgao ? pv.orgao + ' — ' : '') + (pv.descricao||'') + (pv.protocolo_externo ? ' · Prot. ' + pv.protocolo_externo : '');
+}
+
+// ── Modal: registrar acompanhamento (anota o que aconteceu e reagenda) ──
+function abrirModalAcomp(id){
+  var pv = (activeProc.providencias||[]).find(function(x){ return x.id===id; });
+  if(!pv) return;
+  _provAcompId = id;
+  document.getElementById('acomp-resumo').textContent = resumoProv(pv);
+  document.getElementById('acomp-nota').value = '';
+  document.getElementById('acomp-proximo').value = '';
+  document.getElementById('modal-acomp').classList.add('open');
+}
+
+async function salvarAcomp(){
+  if(!activeProc || !_provAcompId) return;
+  await comBotaoTravado('btn-salvar-acomp', async function(){
+    var pv = (activeProc.providencias||[]).find(function(x){ return x.id===_provAcompId; });
+    if(!pv) return;
+    var nota = document.getElementById('acomp-nota').value.trim();
+    var prox = document.getElementById('acomp-proximo').value;
+    if(!prox){ toast('Informe a data do próximo acompanhamento.'); return; }
+    var obs = pv.obs||'';
+    if(nota) obs = (obs ? obs + '\n' : '') + fmtDate(hojeStr()) + ' — ' + nota;
+    var res = await sb.from('providencias').update({obs: obs||null, proximo_acompanhamento: prox}).eq('id', pv.id);
+    if(res.error){ toast('Erro: ' + res.error.message); return; }
+    fecharModal('modal-acomp');
+    toast('Acompanhamento registrado!');
+    await recarregarChecklist();
+  });
+}
+
+// ── Modal: concluir providência (exige a data efetiva de recebimento) ──
+function toggleConclValidade(){
+  var wrapVisivel = document.getElementById('concl-doc-wrap').style.display !== 'none';
+  var marcado = document.getElementById('concl-marcar-doc').checked;
+  document.getElementById('concl-validade-field').style.display = (wrapVisivel && marcado) ? '' : 'none';
+}
+
+function abrirModalConcluirProv(id){
+  var pv = (activeProc.providencias||[]).find(function(x){ return x.id===id; });
+  if(!pv) return;
+  _provConclId = id;
+  document.getElementById('concl-resumo').textContent = resumoProv(pv);
+  document.getElementById('concl-data').value = hojeStr();
+  document.getElementById('concl-validade').value = '';
+  var doc = pv.checklist_doc_id ? (activeProc.checklist_docs||[]).find(function(d){ return d.id===pv.checklist_doc_id; }) : null;
+  var wrap = document.getElementById('concl-doc-wrap'), chk = document.getElementById('concl-marcar-doc');
+  if(doc && !docResolvido(doc)) {
+    var outras = provsDoDoc(activeProc, doc.id).filter(function(x){ return x.status==='em_andamento' && x.id!==id; }).length;
+    wrap.style.display = '';
+    chk.checked = outras===0;
+    document.getElementById('concl-marcar-label').textContent = 'Marcar "' + doc.texto + '" como obtido'
+      + (outras ? ' (ainda há ' + plural(outras,'outra providência','outras providências') + ' em andamento neste item)' : '');
+  } else {
+    wrap.style.display = 'none';
+    chk.checked = false;
+  }
+  toggleConclValidade();
+  document.getElementById('modal-concluir-prov').classList.add('open');
+}
+
+async function confirmarConclusaoProv(){
+  if(!activeProc || !_provConclId) return;
+  await comBotaoTravado('btn-confirmar-concl', async function(){
+    var pv = (activeProc.providencias||[]).find(function(x){ return x.id===_provConclId; });
+    if(!pv) return;
+    var data = document.getElementById('concl-data').value;
+    if(!data){ toast('Informe a data de conclusão.'); return; }
+    var res = await sb.from('providencias').update({status:'concluida', data_conclusao:data}).eq('id', pv.id);
+    if(res.error){ toast('Erro: ' + res.error.message); return; }
+    if(pv.checklist_doc_id && document.getElementById('concl-marcar-doc').checked) {
+      var res2 = await sb.from('checklist_docs').update({
+        status:'obtido', done:true, data_obtido:data,
+        validade: document.getElementById('concl-validade').value||null
+      }).eq('id', pv.checklist_doc_id);
+      if(res2.error){ toast('Erro: ' + res2.error.message); }
+    }
+    fecharModal('modal-concluir-prov');
+    toast('Providência concluída!');
+    await recarregarChecklist();
+  });
+}
+
+async function reabrirProv(id){
+  var res = await sb.from('providencias').update({status:'em_andamento', data_conclusao:null}).eq('id', id);
+  if(res.error){ toast('Erro: ' + res.error.message); return; }
+  await recarregarChecklist();
+}
+
+async function deletarProv(id){
+  if(!confirm('Excluir esta providência? O histórico de acompanhamento dela será perdido.')) return;
+  var res = await sb.from('providencias').delete().eq('id', id);
+  if(res.error){ toast('Erro: ' + res.error.message); return; }
+  await recarregarChecklist();
 }
 
 // ── PARCELAS ──────────────────────────────────────────────────────────────
@@ -1500,6 +2161,9 @@ document.getElementById('modal-oficio-reingresso').addEventListener('click',func
 document.getElementById('modal-lancamento').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-lancamento');});
 document.getElementById('modal-acesso-cliente').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-acesso-cliente');});
 document.getElementById('modal-trocar-senha').addEventListener('click',function(e){if(e.target===this)fecharModal('modal-trocar-senha');});
+['modal-doc-item','modal-providencia','modal-acomp','modal-concluir-prov'].forEach(function(mid){
+  document.getElementById(mid).addEventListener('click',function(e){if(e.target===this)fecharModal(mid);});
+});
 
 function selRp(k,val,cls) {
   ['eu','cli','ter','car'].forEach(x=>{const el=document.getElementById('rp-'+x);if(el)el.className='rp';});
@@ -2091,6 +2755,7 @@ function renderPainel() {
       ${pr?`<span class="pdays ${dCls(pr.dias)}" style="font-size:12px;min-width:72px;text-align:right;">${daysLabel(pr.dias)}</span>`:''}
       <button class="btn" onclick="abrirDetalhe('${p.id}')">Abrir</button>
     </div>`;}).join('');
+  renderAcompPainel();
 }
 
 // RENDER PROCESSOS
@@ -2118,12 +2783,12 @@ function renderProcessos() {
     return 0;
   });
   document.getElementById('tbody-processos').innerHTML=filtered.length?filtered.map(p=>{
-    const [bc,bl]=etapaInfo(p),pr=getPrazoPrincipal(p);
+    const [bc,bl]=etapaInfo(p),pr=getPrazoPrincipal(p),ri=resumoInstrucao(p);
     return`<tr>
       <td class="mono">${getNumeroProtocolo(p).onr}<br>${getNumeroProtocolo(p).interno}</td>
       <td><div style="font-weight:500;">${p.cliente}</div><div class="proc-tipo">${p.imovel||''}</div></td>
       <td style="color:var(--text2);">${p.tipo==='Outro'&&p.tipo_custom ? p.tipo_custom : p.tipo}</td>
-      <td><span class="badge ${bc}">${bl}</span></td>
+      <td><span class="badge ${bc}">${bl}</span>${ri?`<div class="proc-tipo" style="margin-top:3px;white-space:nowrap;">${ri}</div>`:''}</td>
       <td>${p.etapa==='concluido'?'':pr?`<span class="${dCls(pr.dias,pr.tipo)}" style="font-size:12px;">${daysLabel(pr.dias)}</span>`:'—'}</td>
       <td><button class="btn" onclick="abrirDetalhe('${p.id}')">Abrir</button></td>
     </tr>`;}).join(''):'<tr><td colspan="6"><div class="empty"><i class="ti ti-folder-off"></i>Nenhum processo encontrado</div></td></tr>';
@@ -2705,7 +3370,6 @@ function gerarRelatorioEmolumentosCliente(nomeCliente, procs) {
 
 function renderDetalhe() {
   const p=activeProc, prazos=getPrazosAtivos(p), [bc,bl]=etapaInfo(p);
-  const docs=p.checklist_docs||[], dd=docs.filter(d=>d.done).length;
 
   var etapas = construirTimeline(p);
   const dc={done:'dot-done',active:'dot-active',exig:'dot-exig',pending:'dot-pend',cancelado:'dot-cancelado',ativo:'dot-ativo',notif:'dot-notif'};
@@ -2807,26 +3471,7 @@ function renderDetalhe() {
       return temNotif ? '<div class="card" id="card-oficio"></div>' : '';
     }()}
     <div class="card" id="card-exigencia"></div>
-    <div class="card">
-      <div class="row-between" style="margin-bottom:8px;">
-        <div class="card-title" style="margin-bottom:0;">Checklist de documentos</div>
-        <span style="font-size:11px;color:var(--text2);">${dd} / ${docs.length} ok</span>
-      </div>
-      <div class="prog-bar"><div class="prog-fill" style="width:${docs.length?Math.round(dd/docs.length*100):0}%;"></div></div>
-      <div id="doc-items" style="margin-top:8px;">
-        ${docs.map(d=>`<div class="chk-row">
-          <div class="chk-box ${d.done?'ck':''}" onclick="toggleCheckDoc('${d.id}',${!d.done})"></div>
-          <div><div class="chk-text ${d.done?'done':''}">${d.texto}</div></div>
-        </div>`).join('')}
-        ${!docs.length?'<div style="font-size:13px;color:var(--text3);padding:8px 0;">Nenhum item ainda.</div>':''}
-      </div>
-      <div class="add-form" style="margin-top:10px;">
-        <div style="display:flex;gap:8px;">
-          <input class="inline-input" type="text" id="doc-new-text" placeholder="Novo item do checklist..." style="flex:1;">
-          <button class="btn" onclick="addDocItem()"><i class="ti ti-plus"></i> Adicionar</button>
-        </div>
-      </div>
-    </div>`;
+    <div class="card" id="card-checklist"></div>`;
   // Event delegation for protocolo/fase/notificação buttons in detalhe
   var dc2 = document.getElementById('detalhe-content');
   if(dc2) {
@@ -2841,6 +3486,7 @@ function renderDetalhe() {
   }
   renderEmolumentos();
   renderOficios();
+  renderChecklist();
   // Linha do tempo: começa rolada para o final (fase atual); usuário rola para cima para ver o histórico
   var tlEl = document.getElementById('timeline-scroll');
   if(tlEl) tlEl.scrollTop = tlEl.scrollHeight;
@@ -3229,6 +3875,7 @@ function renderPrazos() {
     +'<div class="metric-label">Total de prazos</div>'
     +'<div class="metric-value">'+all.length+'</div></div>';
   renderListaPrazos('todos');
+  renderListaAcomp();
   var prenotDiv = document.getElementById('prazos-prenotacao');
   if(prenotDiv) {
     prenotDiv.innerHTML = prenotacaoHTML;
@@ -3589,8 +4236,8 @@ function renderClienteDetalhe() {
   var prazos = getPrazosAtivos(p);
   var etapas = construirTimeline(p);
   var info = etapaInfo(p), bc = info[0], bl = info[1];
-  var docs = p.checklist_docs || [];
-  var dd = docs.filter(function(d){ return d.done; }).length;
+  var docs = docsOrdenados(p);
+  var dd = docs.filter(docResolvido).length;
   var dc = {done:'dot-done',active:'dot-active',exig:'dot-exig',pending:'dot-pend',cancelado:'dot-cancelado',ativo:'dot-ativo',notif:'dot-notif'};
 
   var html = '<div class="detail-grid">'
@@ -3632,7 +4279,10 @@ function renderClienteDetalhe() {
     + '<div class="prog-bar"><div class="prog-fill" style="width:'+(docs.length?Math.round(dd/docs.length*100):0)+'%;"></div></div>'
     + '<div style="margin-top:8px;">'
     + docs.map(function(d) {
-        return '<div class="chk-row"><div class="chk-box '+(d.done?'ck':'')+'" style="cursor:default;"></div><div><div class="chk-text '+(d.done?'done':'')+'">'+d.texto+'</div></div></div>';
+        var st = docStatus(d), res = docResolvido(d), tags = '';
+        if(st!=='pendente' && st!=='obtido') tags += '<span class="st-tag st-'+st+'">'+(DOC_STATUS[st]||st)+'</span>';
+        if(d.responsavel && !res) tags += '<span class="rtag '+respClass(d.responsavel)+'">'+escRel(d.responsavel)+'</span>';
+        return '<div class="chk-row"><div class="chk-box '+(res?'ck':'')+'" style="cursor:default;"></div><div><div class="chk-text '+(res?'done':'')+'">'+escRel(d.texto)+'</div>'+(tags?'<div class="doc-meta">'+tags+'</div>':'')+'</div></div>';
       }).join('')
     + (!docs.length ? '<div style="font-size:13px;color:var(--text3);padding:8px 0;">Nenhum item ainda.</div>' : '')
     + '</div></div>';
