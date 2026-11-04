@@ -2528,11 +2528,24 @@ function getPrazosDeProtocolo(p, prot) {
     }
     // No active fase, no open NE - if protocol is active, show pending analise_ri
     if(prot.status === 'ativo' && prot.apresentacao) {
-      var vRI = addDiasUteis(prot.apresentacao, 10);
-      prs.push({
-        nome: 'Análise no RI (10 dias úteis)',
-        venc: vRI, dias: diasUteis(dateToStr(vRI)), tipo: 'analise_ri'
-      });
+      // Se houve reingresso (NE cumprida), o prazo de análise é o novo prazo
+      // contado do reingresso, e não o original contado da apresentação
+      var resolvidasSemFase = (p.exigencias||[]).filter(function(e){ return e.resolvida && e.novo_prazo_analise; });
+      resolvidasSemFase.sort(function(a,b){ return (a.novo_prazo_analise||'').localeCompare(b.novo_prazo_analise||''); });
+      var ultimaSemFase = resolvidasSemFase.length ? resolvidasSemFase[resolvidasSemFase.length-1] : null;
+      if(ultimaSemFase) {
+        prs.push({
+          nome: 'Análise no RI (10 dias úteis) — pós ' + (ultimaSemFase.nota_ref||'NE'),
+          venc: new Date(ultimaSemFase.novo_prazo_analise + 'T12:00:00'),
+          dias: diasUteis(ultimaSemFase.novo_prazo_analise), tipo: 'analise_ri'
+        });
+      } else {
+        var vRI = addDiasUteis(prot.apresentacao, 10);
+        prs.push({
+          nome: 'Análise no RI (10 dias úteis)',
+          venc: vRI, dias: diasUteis(dateToStr(vRI)), tipo: 'analise_ri'
+        });
+      }
     }
     return prs;
   }
